@@ -1,0 +1,20 @@
+{
+  "$comment": [
+    "リポジトリにコミットする設定。~/.claude/ に置いた設定はクラウドセッションに届かない。",
+    "SessionStart フックはローカル・クラウド両方で走るため、",
+    "scripts/install_pkgs.sh 側で CLAUDE_CODE_REMOTE を見て分岐する。"
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/install_pkgs.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

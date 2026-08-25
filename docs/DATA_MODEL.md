@@ -1,0 +1,376 @@
+# DATA_MODEL.md — DB接続・テーブル定義・制約
+
+DB: Supabase PostgreSQL（東京 ap-northeast-1）
+
+---
+
+## 0. DB接続方式（v04で確定）
+
+### 0.1 Data API は無効。DBアクセスは Postgres 接続で行う
+
+v03には矛盾があった。「Data APIを無効にする」と書きながら、
+「service role key でDBへアクセスする」とも書いていた。
+`supabase-js` からのDBアクセスは PostgREST（＝Data API）経由なので、この二つは両立しない。
+
+**v04の確定：**
+
+| 用途 | 経路 | 認証情報 |
+| --- | --- | --- |
+| **DB読み書き** | Next.js Server → **Supavisor プーラー（transaction mode / 6543）** → Postgres | `DATABASE_URL`（専用ロール `app_server`） |
+| **マイグレーション** | CI → **session mode（5432）または direct connection** | `DIRECT_URL`（`app_migrator`） |
+| **Storage** | サーバから署名URL発行・削除 | `SUPABASE_SERVICE_ROLE_KEY` |
+| **Auth** | JWT検証、招待などの管理操作 | `SUPABASE_SERVICE_ROLE_KEY` |
+| **ブラウザ** | Auth（ログイン）と Storage（TUSアップロード）のみ | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+
+- **Data API（PostgREST）はプロジェクト設定で無効のまま。** ブラウザからDBへ到達する経路を持たない。
+- `SUPABASE_SERVICE_ROLE_KEY` は **Storage と Auth 専用**。DBアクセスには使わない。
+
+### 0.2 ドライバとORM
+
+| 項目 | 採用 | 理由 |
+| --- | --- | --- |
+| ドライバ | `postgres`（postgres.js） | 軽量。サーバレス関数と相性がよい |
+| クエリ層 | Drizzle ORM | 型がスキーマから出る。Zodと二重定義にならない |
+| マイグレーション | `drizzle-kit` | SQLファイルを生成し、リポジトリに残す |
+
+**transaction mode（6543）は prepared statement を使えない。**
+`postgres.js` では `prepare: false` を必ず指定する。指定を忘れると本番でだけ落ちる。
+
+```ts
+// packages/core/src/db/client.ts
+import postgres from "postgres";
+export const sql = postgres(process.env.DATABASE_URL!, {
+  prepare: false,        // ← Supavisor transaction mode では必須
+  max: 1,                // サーバレスでは接続を溜めない
+  idle_timeout: 20,
+});
+```
+
+マイグレーションは session mode / direct（5432）で流す。
+transaction mode では `CREATE INDEX CONCURRENTLY` などが通らない。
+
+### 0.3 RLS はサーバ接続でも効かせる
+
+`postgres` スーパーユーザーで接続するとRLSが素通りする。**それをしない。**
+
+- 専用ロール `app_server` を作る（`NOSUPERUSER` / `NOBYPASSRLS`）
+- 全テーブルで `ENABLE ROW LEVEL SECURITY`
+- ポリシーは `current_setting('app.actor_id', true)::uuid` を参照する
+- **各リクエストはトランザクションを開き、最初に `SET LOCAL app.actor_id` を発行する**
+  transaction mode でも `SET LOCAL` はトランザクション内に閉じるので安全に使える
+
+```sql
+CREATE ROLE app_server LOGIN NOSUPERUSER NOBYPASSRLS;
+GRANT USAGE ON SCHEMA public TO app_server;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_server;
+
+CREATE POLICY match_member_read ON matches FOR SELECT TO app_server
+USING (EXISTS (
+  SELECT 1 FROM match_access ma
+  WHERE ma.match_id = matches.id
+    AND ma.actor_id = current_setting('app.actor_id', true)::uuid
+));
+```
+
+`SET LOCAL` を発行しない経路を作らない。`API_SPEC.md` §11 の `defineHandler` が必ず発行する。
+
+---
+
+## 1. 全体の原則
+
+| 原則 | 内容 |
+| --- | --- |
+| 不変 | `media_sources`, `align_words` は作成後に更新しない（削除時の伏せ字化を除く） |
+| 分離 | AI出力（`*_runs`）と人間の確定（`*_decisions`）を別テーブルにする |
+| 追記 | `edit_logs` は INSERT のみ。UPDATE / DELETE をトリガで拒否する |
+| 二列 | AI出力は `*_ai`、人手は `*_human`。表示は `COALESCE(human, ai)` |
+| 楽観ロック | 更新されうる全テーブルに `lock_version int NOT NULL DEFAULT 0` |
+| サーバ割当 | Issue key、node id、確定状態はサーバが決める |
+| 再現 | `export_runs` から、同じ資料を後から再生成できる |
+| 削除可能 | 保持レベルA〜Dを段階的に消せる（`PRIVACY_RETENTION.md`） |
+
+### 1.1 `lock_version` を持つテーブル
+
+`matches`, `match_members`, `stage_segments`, `transcript_segments`, `issues`,
+`argument_nodes`, `flow_links`, `rule_flags`, `judge_decisions`,
+`match_retention_policies`, `transcription_jobs`
+
+更新は `WHERE id = $1 AND lock_version = $2` の条件付きUPDATE。
+0行なら `409 VERSION_CONFLICT`。成功時に `lock_version = lock_version + 1`。
+
+---
+
+## 2. 試合
+
+### `matches`
+| 列 | 型 | 制約 |
+| --- | --- | --- |
+| `id` | uuid | PK |
+| `motion` | text | not null |
+| `held_on` | date | |
+| `round` | text | 予選1〜6 / Q-F / S-F / Final など |
+| `aff_team`, `neg_team` | text | レベルC削除時に伏せる |
+| `ruleset_id` | text | not null, 既定 `henda-20` |
+| `ruleset_version` | text | not null |
+| `consent_scope` | text | `practice_only` / `training_material` / `research` / `public` |
+| `consent_obtained_from` | text[] | `student` / `guardian` / `school` / `organizer` |
+| `consent_recorded_at` | timestamptz | **null なら解析ジョブを作成できない** |
+| `consent_expires_on` | date | |
+| `status` | text | `draft` / `analyzing` / `reviewing` / `decided` / `locked` |
+| `lock_version` | int | |
+| `created_by`, `created_at` | | |
+
+> `consent_recorded_at` が null の match に対する転写ジョブ作成は
+> **API（`409 CONSENT_REQUIRED`）とDBトリガの両方で拒否する。**
+
+### `match_members`
+`id`, `match_id`, `side`(`AFF`/`NEG`), `seat`(`A1`〜`N4`), `display_name`（C削除時 null）,
+`team_size`(3 or 4), `lock_version`
+
+UNIQUE(`match_id`, `side`, `seat`)
+
+### `match_access`
+`match_id`, `actor_id`, `role`(`owner`/`member`/`viewer`)
+
+RLSポリシーの参照先。PK(`match_id`, `actor_id`)
+
+---
+
+## 3. メディア
+
+### `media_sources`
+`id`, `match_id`, `storage_path`（A削除時 null）, `source_sha256`, `duration_ms`,
+`mime`, `bitrate`, `channels`, `origin`, `purged_at`, `created_at`
+
+UNIQUE(`match_id`, `source_sha256`)。**URLは保存しない。**
+
+### `imports`
+`id`, `match_id`, `kind`(`whosaid_json`), `schema_version`（**5以外は拒否**）,
+`payload_hash`, `import_meta` jsonb, `imported_by`, `imported_at`
+
+---
+
+## 4. ジョブ
+
+### `transcription_jobs`
+| 列 | 型 | 制約 |
+| --- | --- | --- |
+| `id` | uuid | PK |
+| `match_id` | uuid | FK |
+| `kind` | text | `align` / `stage_detect` / `stage_transcribe` / `anchor` |
+| `target_stage_no` | int | `stage_transcribe` のときのみ 1〜12 |
+| `status` | text | `queued` / `running` / `succeeded` / `failed` / `canceled` |
+| `attempt`, `max_attempt` | int | 既定 0 / 3 |
+| `provider_id`, `model` | text | |
+| `params_hash` | text | 冪等キーの一部 |
+| `idempotency_key` | text | APIの `Idempotency-Key` |
+| `lock_version` | int | 楽観ロック |
+| `started_at`, `finished_at` | timestamptz | |
+| `metrics` | jsonb | 所要時間・実トークン量・コスト実績 |
+| `error` | text | |
+
+UNIQUE(`match_id`, `kind`, `target_stage_no`, `params_hash`)
+
+### `align_words`（不変・Pass A出力）
+`media_source_id`, `idx`, `word`, `start_ms`, `end_ms`, `confidence`
+
+PK(`media_source_id`, `idx`)、`start_ms` にindex。**レベルB削除時に物理削除。**
+
+---
+
+## 5. ステージと逐語
+
+### `stage_segments`
+`id`, `match_id`, `stage_no`(1〜12), `type`, `side`, `seat`,
+`start_ms`, `end_ms`, `role_status`, `confidence`, `name_announced`, `lock_version`
+
+UNIQUE(`match_id`, `stage_no`)
+CHECK: 同一matchで `start_ms` 単調増加、区間が重ならない
+
+`seat` は担当者表からサーバが導出する。**APIで受け取らない。**
+
+### `prep_segments`
+`id`, `match_id`, `kind`(`prep`/`chair_announcement`/`silence`), `after_stage_no`, `start_ms`, `end_ms`
+
+準備時間とチェアパーソンのアナウンスを捨てない。
+
+### `transcript_segments`
+| 列 | 型 | 制約 |
+| --- | --- | --- |
+| `id` | uuid | PK |
+| `match_id`, `stage_no`, `idx` | | UNIQUE(`match_id`,`stage_no`,`idx`) |
+| `start_ms`, `end_ms` | int | 表示・再生に使う確定時刻 |
+| `ai_start_ms`, `ai_end_ms` | int | AIが出した元の時刻 |
+| `text_ai`, `text_human` | text | B削除時に両方 null |
+| `text_status` | text | `ai_draft` / `human_edited` |
+| `time_status` | text | `unverified` / `derived` / `human_verified` |
+| `audibility` | text | `unknown` / `clear` / `partial` / `unheard` |
+| `audibility_set_by` | uuid | **null なら人が設定していない** |
+| `coverage` | real | Pass Cの被覆率 |
+| `is_silence` | bool | 沈黙区間も保持する |
+| `is_self_introduction` | bool | 名乗り区間の印（匿名化に使う） |
+| `text_purged_at` | timestamptz | |
+| `lock_version` | int | |
+
+```sql
+CHECK (audibility = 'unknown' OR audibility_set_by IS NOT NULL)
+```
+**AIが `audibility` を書けないことをDBで担保する。**
+
+意味論は `REVIEW_SEMANTICS.md` を読むこと。
+
+---
+
+## 6. フロー
+
+### `issues`
+`id`（**サーバ割当**）, `match_id`, `label`(`AD1`/`AD2`/`DA1`/`DA2`), `side`,
+`title`(120字以内), `review_status`, `lock_version`
+
+UNIQUE(`match_id`, `label`)
+片側最大2件は、`label` のUNIQUEと `side` の対応で担保する（`AD*`=AFF / `DA*`=NEG）。
+
+### `argument_nodes`
+`id`（**サーバ割当**）, `match_id`, `issue_id`(null可), `kind`, `role`,
+`stage_no`, `text`, `review_status`, `lock_version`
+
+### `node_segments`
+`node_id`, `segment_id`。PK(`node_id`, `segment_id`)
+
+**`argument_nodes` は最低1件の `node_segments` を持たなければならない。**
+API側で必須にし、DB側は遅延制約トリガ（`CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED`）で担保する。
+
+### `evidence_refs`
+`id`, `node_id`, `source_type`(`fact_data`/`expert`/`news`),
+`cited_elements` jsonb, `completeness`, `segment_id`
+
+### `flow_links`
+`id`, `match_id`, `from_node`, `to_node`, `relation`, `confidence`, `review_status`, `lock_version`
+
+relationごとに許される from/to の kind をトリガで検証する（`JUDGE_LOGIC.md` §4）。
+
+### `rule_flags`（Phase B）
+`id`, `match_id`, `type`, `target_ref`, `rationale`,
+`status`(`candidate`/`confirmed`/`rejected`), `decided_by`, `decided_at`, `lock_version`
+
+**`candidate` のままのフラグは判定に影響しない。**
+
+---
+
+## 7. Run と 確定
+
+### `flow_runs`
+`id`, `match_id`, `model`, `prompt_version`, `ruleset_version`, `created_at`
+
+### `judge_runs`（AI案）
+`id`, `match_id`, `flow_run_id`, `ruleset_version`, `model`,
+`voting_issue_draft`, `winner_draft`, `created_at`
+
+### `judge_issue_assessments`（AI案）
+`judge_run_id`, `issue_id`, `probability`(`Hi`/`Lo`), `value`(`Large`/`Small`),
+`strength`(`Strong`/`Weak`/`None`)
+
+PK(`judge_run_id`, `issue_id`)。1 runにつき最大4件。
+
+### `judge_decisions`（人間の確定）
+| 列 | 型 | 制約 |
+| --- | --- | --- |
+| `id`, `match_id` | | |
+| `winner` | text | **`AFF` / `NEG` のみ。引き分けを表現できない** |
+| `voting_issue` | text | `AD1`/`AD2`/`DA1`/`DA2` |
+| `comm_aff`, `comm_neg` | int | CHECK 1〜5 |
+| `best_debater` | text | C削除時に座席ラベルへ置換 |
+| `reason` | text | not null |
+| `decided_by`, `decided_at` | | |
+| `locked_at` | timestamptz | **not null になったら以後変更不可** |
+| `lock_version` | int | |
+
+### `judge_decision_assessments`（人間の確定したDecision Chart）
+`judge_decision_id`, `issue_id`, `probability`, `value`, `strength`
+
+**`judge_issue_assessments`（AI案）を上書きしない。別テーブルに保存する。**
+
+### `export_runs`
+`id`, `match_id`, `flow_run_id`, `judge_decision_id`, `template_version`,
+`output_paths` jsonb, `created_at`
+
+---
+
+## 8. ロック不変条件（v04で追加）
+
+`judge_decisions.locked_at` を立てられるのは、次をすべて満たすときだけ。
+**API（`POST /judge/decision/lock`）とDBトリガの両方で検査する。**
+
+1. `winner` / `voting_issue` / `comm_aff` / `comm_neg` / `reason` が埋まっている
+2. `voting_issue` に対応する `issues.review_status = 'confirmed'`
+3. **判定根拠として引用された全 segment の `audibility <> 'unknown'`**
+4. `rule_flags` に `status = 'candidate'` が残っていない（Phase B）
+
+```sql
+-- 3 の判定に使うビュー
+CREATE VIEW judge_cited_segments AS
+SELECT DISTINCT jd.id AS judge_decision_id, ns.segment_id
+FROM judge_decisions jd
+JOIN issues i         ON i.match_id  = jd.match_id AND i.review_status = 'confirmed'
+JOIN argument_nodes n ON n.issue_id  = i.id        AND n.review_status = 'confirmed'
+JOIN node_segments ns ON ns.node_id  = n.id;
+```
+
+`unknown` が残る場合は `409 AUDIBILITY_UNRESOLVED` を返し、
+`details.pendingSegmentIds` に該当idを返す（`API_SPEC.md` §7.2〜7.3）。
+
+> **なぜこれが要るのか。**
+> `audibility = unknown` は「まだ人が聞いていない」を意味する。
+> これを許すと、AIの文字起こしを人間が聞いたものとして判定に使ってしまう。
+> 本設計が最も避けたい事故が、ちょうどここで起きる。
+
+---
+
+## 9. 保持と削除
+
+保持レベルA〜Eと、レベルごとの削除操作は `PRIVACY_RETENTION.md` を正本とする。
+DB側に必要なもの:
+
+- `match_retention_policies`（`match_id` PK, `scope`, `purge_a_on`〜`purge_d_on`, `anonymize_c_immediately`, `lock_version`）
+- `retention_events`（追記のみ）
+- `media_sources.purged_at` / `transcript_segments.text_purged_at`
+- **削除は A → B → C → D の順にしか進めない**（トリガで順序を強制）
+- 削除はトランザクション内で完結させる。半分だけ消えた状態を作らない
+
+---
+
+## 10. 監査
+
+### `edit_logs`（追記のみ）
+`id`, `match_id`, `entity`, `entity_id`, `before` jsonb, `after` jsonb, `actor`, `at`
+
+```sql
+CREATE OR REPLACE FUNCTION edit_logs_append_only()
+RETURNS trigger AS $$ BEGIN
+  RAISE EXCEPTION 'edit_logs is append-only';
+END; $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER edit_logs_no_update BEFORE UPDATE ON edit_logs
+  FOR EACH ROW EXECUTE FUNCTION edit_logs_append_only();
+CREATE TRIGGER edit_logs_no_delete BEFORE DELETE ON edit_logs
+  FOR EACH ROW EXECUTE FUNCTION edit_logs_append_only();
+```
+
+**例外は削除時の伏せ字化のみ。**
+`SECURITY DEFINER` 関数 `redact_edit_logs(match_id, level)` だけが
+`before` / `after` の該当キーを `null` にできる。その操作も `retention_events` に記録する。
+
+> `edit_logs` を忘れると、本文や氏名がここに残り続け、
+> 「消したつもりで残っている」状態になる。
+
+---
+
+## 11. RLSの段階
+
+| 段階 | 方針 |
+| --- | --- |
+| MVP | `app_server` ロール＋`SET LOCAL app.actor_id`＋`match_access` 参照ポリシー |
+| 共有段階 | `match_access.role` による読み書き分離（viewerは書けない） |
+| 学校運用 | 学校テナントを導入し、テナント境界でポリシーを追加 |
+
+**MVPの段階からRLSを有効にする。** 後から有効化すると、既存の全クエリを見直すことになる。

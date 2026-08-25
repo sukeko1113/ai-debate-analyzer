@@ -1,0 +1,86 @@
+# ---------------------------------------------------------------------------
+# .gitignore
+#
+# 最優先の目的は、実試合の音声・映像・氏名・transcript を
+# 履歴に残さないこと。一度コミットすると、削除しても履歴からは消えない。
+# CI の check-no-real-data は二重の網であって、一枚目はここ。
+# ---------------------------------------------------------------------------
+
+# --- メディア（実試合のものは絶対にコミットしない） ---------------------------
+*.mp3
+*.m4a
+*.wav
+*.aac
+*.flac
+*.ogg
+*.opus
+*.mp4
+*.mov
+*.webm
+*.mkv
+
+# 例外: 合成の Gold Dataset だけは許す（架空の試合・TTS音声）
+!fixtures/gold-01/*.mp3
+!fixtures/gold-01/*.wav
+
+# --- whosaid-editor の作業ファイル -------------------------------------------
+# 実会議・実試合の逐語と氏名が入っている
+*.speakers.json
+!fixtures/**/*.speakers.json
+
+# --- 環境変数・鍵 -------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+service-account*.json
+
+# --- Claude Code -------------------------------------------------------------
+# settings.json はリポジトリに置く（~/.claude はクラウドに届かないため）。
+# それ以外の .claude 配下は手元固有なので除く。
+.claude/*
+!.claude/settings.json
+.claude/settings.local.json
+
+# --- Node / Next.js ----------------------------------------------------------
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# --- テスト・カバレッジ -------------------------------------------------------
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# --- 生成物（実行時に作る資料。リポジトリには置かない） -----------------------
+tmp/
+.tmp/
+exports/
+*.docx
+*.pdf
+!docs/**/*.pdf
+
+# --- ツール ------------------------------------------------------------------
+.vercel/
+.supabase/
+*.log
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- OS / エディタ -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json

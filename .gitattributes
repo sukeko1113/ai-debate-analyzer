@@ -1,0 +1,7 @@
+* text=auto
+*.sh text eol=lf
+*.sql text eol=lf
+*.mp3 binary
+*.wav binary
+*.docx binary
+*.pdf binary
