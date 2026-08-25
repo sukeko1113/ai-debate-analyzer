@@ -26,7 +26,9 @@ DIRECT_URL="postgres://app_migrator:${PG_PASS}@127.0.0.1:5432/${PG_DB}"
 
 # --- ローカルセッション --------------------------------------------------------
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
-  if [ ! -d node_modules ]; then
+  # package.json が無い状態で npm ci を走らせると、依存ゼロの空 package-lock.json が
+  # 生成されてしまう。package.json があるときだけ走らせる。
+  if [ -f package.json ] && [ ! -d node_modules ]; then
     log "local: npm ci"
     npm ci || npm install || true
   fi
@@ -44,28 +46,30 @@ for i in $(seq 1 20); do
 done
 pg_isready -h 127.0.0.1 -p 5432 || log "warning: postgres not ready"
 
-psql_su() { su postgres -c "psql -v ON_ERROR_STOP=0 -q -c \"$1\"" 2>/dev/null || true; }
-
+# ロールとデータベースは CI と同じ SQL で作る（scripts/db-bootstrap.sql）。
+# 二か所に書くとずれる。
 log "cloud: creating roles and database"
-psql_su "CREATE ROLE app_migrator LOGIN NOSUPERUSER PASSWORD '${PG_PASS}';"
-psql_su "CREATE ROLE app_server   LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '${PG_PASS}';"
-psql_su "CREATE DATABASE ${PG_DB} OWNER app_migrator;"
-psql_su "GRANT CONNECT ON DATABASE ${PG_DB} TO app_server;"
-su postgres -c "psql -q -d ${PG_DB} -c \"GRANT USAGE ON SCHEMA public TO app_server;\"" 2>/dev/null || true
-su postgres -c "psql -q -d ${PG_DB} -c \"ALTER DEFAULT PRIVILEGES FOR ROLE app_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_server;\"" 2>/dev/null || true
+su postgres -c "psql -q -v ON_ERROR_STOP=1 -v app_password=${PG_PASS} -v db_name=${PG_DB} -f '$(pwd)/scripts/db-bootstrap.sql'" \
+  || log "warning: db-bootstrap.sql に失敗しました"
+su postgres -c "psql -q -v ON_ERROR_STOP=1 -d ${PG_DB} -f '$(pwd)/scripts/db-bootstrap-schema.sql'" \
+  || log "warning: db-bootstrap-schema.sql に失敗しました"
 
 # --- 接続情報を .env.local に書く（agent が読む） -------------------------------
 log "cloud: writing .env.local"
 cat > .env.local <<EOF
 # このファイルはセッションごとに install_pkgs.sh が生成する。編集しても次回上書きされる。
 # セッション内 PostgreSQL 16 を指しており、実 Supabase には接続しない。
+#
+# NODE_ENV はここに書かない。
+# 書くと \`set -a && . ./.env.local\` で export され、その状態の \`next build\` は
+# React の本番/開発が食い違って /_global-error のプリレンダで落ちる。
+# NODE_ENV は next が各コマンドで自分で決める。
 DATABASE_URL=${DB_URL}
 DIRECT_URL=${DIRECT_URL}
-NODE_ENV=development
 EOF
 
 # --- 依存 ---------------------------------------------------------------------
-if [ ! -d node_modules ]; then
+if [ -f package.json ] && [ ! -d node_modules ]; then
   log "cloud: npm ci"
   npm ci || npm install || true
 fi

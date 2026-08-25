@@ -1,0 +1,17 @@
+# 生成物・依存
+.next/
+node_modules/
+drizzle/
+schemas/
+package-lock.json
+coverage/
+playwright-report/
+test-results/
+next-env.d.ts
+
+# 文書は整形しない。
+# docs/ は設計の正本であり、CLAUDE.md は守るべき原則そのもの。
+# 整形ツールに書き換えさせると、差分が本質的な変更を隠す。
+docs/
+CLAUDE.md
+README.md

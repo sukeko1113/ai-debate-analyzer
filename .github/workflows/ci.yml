@@ -1,0 +1,151 @@
+name: CI
+
+# CI が唯一の判定者である（DEV_ENVIRONMENTS.md §8）。
+# 「手元では通った」を根拠にしない。
+#
+# ここでは実 Supabase にも外部プロバイダにも接続しない。
+# DB の検証は service コンテナの PostgreSQL 16 で行う。
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  quality:
+    name: typecheck / lint / unit / schemas / data-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: 実データ混入の検査（音声・映像・大容量・speakers.json）
+        run: npm run check-no-real-data
+
+      - name: セットアップスクリプトの版ずれ検査
+        run: npm run check-setup-script
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm run format
+
+      - name: JSON Schema を再生成して差分ゼロを確認
+        run: |
+          npm run generate-schemas
+          git diff --exit-code schemas/
+
+      - run: npm run test:unit
+
+  build:
+    name: build / 開発専用ルートの除外
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: /dev/* が production ビルドに含まれていないこと
+        run: npm run check-dev-routes
+
+  database:
+    name: マイグレーション / RLS
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-superuser
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # セッション内・CI 内だけの値。秘密ではない。実 Supabase には接続しない
+      PGPASSWORD: ci-superuser
+      APP_PASSWORD: ci-app
+      DB_NAME: debate_ci
+      # マイグレーションは app_migrator（テーブル所有者）
+      DIRECT_URL: postgres://app_migrator:ci-app@127.0.0.1:5432/debate_ci
+      # アプリは app_server（NOSUPERUSER / NOBYPASSRLS）。所有者と分けないと RLS を検証できない
+      DATABASE_URL: postgres://app_server:ci-app@127.0.0.1:5432/debate_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: ロールとデータベースを作る（クラウドセッションと同じ SQL）
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 \
+            -v app_password="$APP_PASSWORD" -v db_name="$DB_NAME" \
+            -f scripts/db-bootstrap.sql
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -d "$DB_NAME" \
+            -f scripts/db-bootstrap-schema.sql
+
+      - name: マイグレーション
+        run: npm run db:migrate
+
+      - name: RLS テスト（所有者で接続すると空回りすることの確認を含む）
+        run: npm run test:db
+
+  e2e:
+    name: Playwright（メディア再生位置）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: ブラウザを入れる
+        run: npx playwright install --with-deps chromium
+
+      - name: メディア要素の currentTime を検証する
+        # 音が鳴るかは検証できない。位置だけ（ACCEPTANCE.md H1 は人の確認）
+        run: npm run test:e2e
+        env:
+          DATABASE_URL: postgres://app_server:unused@127.0.0.1:5432/unused
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
