@@ -4,9 +4,17 @@ import { defineConfig, devices } from "@playwright/test";
  * /dev/media-probe は開発サーバにしか存在しない（next.config.ts）ため、
  * webServer は `next dev` を使う。
  *
- * クラウドセッションでは Playwright のブラウザが /opt/pw-browsers に
- * プリインストールされている（PLAYWRIGHT_BROWSERS_PATH）。
- * @playwright/test のバージョンは、そのビルド（chromium-1194）に合わせて固定する。
+ * ブラウザの入手経路は実行場所で異なる。
+ *   クラウドセッション: /opt/pw-browsers にプリインストール（PLAYWRIGHT_BROWSERS_PATH）。
+ *                       ダウンロードは発生しない
+ *   CI・デスクトップ:   npx playwright install --with-deps chromium
+ *
+ * そのため @playwright/test は 1.56.1 に完全固定してある。
+ * プリインストールされているのは chromium-1194 で、これを要求するのが 1.56 系だからである。
+ * 上げると要求リビジョンが変わり（1.57→1200 / 1.58→1208 / 1.59→1217 /
+ * 1.60→1223 / 1.61→1228 / 1.62→1234）、セットアップスクリプトでの
+ * ダウンロードが必要になって5分の制限に当たる。
+ * 対応関係は tests/unit/playwright-pin.test.ts が検査する。
  */
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 

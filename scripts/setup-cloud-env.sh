@@ -14,11 +14,15 @@
 #
 #     - Node.js 22 / npm            … プリインストール
 #     - PostgreSQL 16               … プリインストール（起動は install_pkgs.sh）
-#     - Playwright のブラウザ       … /opt/pw-browsers に chromium が入っており、
+#     - Playwright のブラウザ       … /opt/pw-browsers に chromium-1194 が入っており、
 #                                     PLAYWRIGHT_BROWSERS_PATH が設定済み。
-#                                     @playwright/test のバージョンを、その
-#                                     ビルド（chromium-1194 = playwright 1.56系）に
-#                                     合わせてあるので install は不要
+#                                     @playwright/test を 1.56.1 に完全固定してあり、
+#                                     1.56系が要求するのがこの 1194 なので install は不要。
+#                                     バージョンを上げると要求リビジョンが変わり
+#                                     （1.57→1200 / 1.58→1208 / 1.59→1217 /
+#                                       1.60→1223 / 1.61→1228 / 1.62→1234）、
+#                                     ここでのダウンロードが必要になって5分に当たる。
+#                                     対応関係は tests/unit/playwright-pin.test.ts が検査する
 #     - docker / git / gh / jq / rg … プリインストール
 #
 # 足すものができたら、ここに書いて sha256 を更新し、環境ダイアログにも貼り直す。
