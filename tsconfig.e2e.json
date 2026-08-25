@@ -1,0 +1,9 @@
+{
+  "$comment": "Playwright のテストは vitest の globals と衝突するため型検査を分ける",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"],
+  "exclude": []
+}

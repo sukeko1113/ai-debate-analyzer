@@ -49,6 +49,31 @@ ai-debate-analyzer/
 
 ---
 
+## 開発コマンド
+
+```bash
+npm run typecheck          # tsc --noEmit
+npm run lint               # eslint
+npm run format             # prettier --check（docs/ と CLAUDE.md は対象外）
+npm run test:unit          # DB を必要としないテスト
+npm run test:db            # セッション内 PostgreSQL に対する RLS・権限テスト
+npm run test:e2e           # Playwright（メディア要素の再生位置）
+npm run db:migrate         # drizzle マイグレーション（DIRECT_URL / app_migrator）
+npm run generate-schemas   # Zod → schemas/*.json（生成物。手書きしない）
+npm run check-no-real-data # 実データ混入の検査
+npm run build              # Next.js production ビルド
+npm run check-dev-routes   # /dev/* が production ビルドに無いことの確認
+```
+
+DB は SessionStart フック（`scripts/install_pkgs.sh`）が起動し、
+`scripts/db-bootstrap.sql` でロールとデータベースを作る。
+CI も同じ SQL を使う。**実 Supabase には接続しない**（`docs/DEV_ENVIRONMENTS.md` §2）。
+
+`/dev/media-probe` は再生位置を確かめるための開発専用ページで、
+production ビルドには含まれない。
+
+---
+
 ## 技術
 
 Next.js（App Router）＋ TypeScript ＋ Zod ＋ Drizzle ORM /
