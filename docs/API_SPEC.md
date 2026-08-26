@@ -249,7 +249,7 @@ export const SetAudibilityReq = z.object({
 export const CreateNodeReq = z.object({
   issueId: z.string().uuid().nullable(),
   kind: z.enum(['CLAIM','ATTACK','DEFENSE','QUESTION','ANSWER','SUMMARY_POINT']),
-  role: z.enum(['present','effect','importance','other']).nullable(),
+  role: ArgumentRole.nullable(),   // 5値。BASIC_DESIGN_v05 §13.2 / ARGUMENT_MODEL.md §1
   stageNo: z.number().int().min(1).max(12),
   text: z.string().min(1),
   segmentIds: z.array(z.string().uuid()).min(1),   // ← 0件は 422 NODE_WITHOUT_SEGMENT

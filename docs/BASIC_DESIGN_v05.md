@@ -829,8 +829,14 @@ AD1 / AD2 / DA1 / DA2の強さの変化を、HPバーのように見せる補助
 
 ### 13.1 ruleset（henda-20）
 
+データ本体は `packages/core/src/ruleset/henda-20.json` に置く。
+定型句辞書をコードへ埋め込まないためであり、schema.ts は形と不変条件だけを持つ。
+
 ```ts
 // packages/core/src/ruleset/schema.ts
+/** 座席ラベル。z.string() だと空文字が通り「担当者表に穴」を検出できない */
+export const SeatLabel = z.enum(['A1','A2','A3','A4','N1','N2','N3','N4']);
+
 export const StageDef = z.object({
   no: z.number().int().min(1).max(12),
   type: z.enum([
@@ -841,17 +847,41 @@ export const StageDef = z.object({
   side: z.enum(['AFF','NEG']),
   durationSec: z.number().int().positive(),
   prepAfterSec: z.number().int().min(0),
-  seat4: z.string(),           // 4人チームの担当（例 'A1'）
-  seat3: z.string(),           // 3人チームの担当
+  seat4: SeatLabel,            // 4人チームの担当（例 'A1'）
+  seat3: SeatLabel,            // 3人チームの担当
   allowsNewIssue: z.boolean(), // 立論のみ true
   allowsAttack: z.boolean(),
   allowsDefense: z.boolean(),
   allowsComparison: z.boolean(),
-});
+})
+  // type の接頭辞と side、座席の接頭辞と side が一致すること
+  .refine(s => s.side === (s.type.startsWith('AFF_') ? 'AFF' : 'NEG'))
+  .refine(s => s.seat4.startsWith('A') === (s.side === 'AFF'))
+  .refine(s => s.seat3.startsWith('A') === (s.side === 'AFF'));
+
+/**
+ * チェアパーソンの定型句。1エントリが複数のステージ番号を持てる。
+ * 「Questions from the Negative」は②と⑧、
+ * 「Questions from the Affirmative」は④と⑥で文言が重複するため、
+ * 1対1にすると P6（ステージ推定）で作り直しになる。
+ * stage_start 以外（準備時間・名乗り・試合終了）は stageNo を持たない。
+ */
+export const ChairCue = z.object({
+  kind: z.enum(['stage_start','prep','speech_start','debate_end']),
+  pattern: z.string().min(1),
+  stageNo: z.array(z.number().int().min(1).max(12)),
+  note: z.string(),
+}).refine(c =>
+  c.kind === 'stage_start' ? c.stageNo.length >= 1 : c.stageNo.length === 0
+);
+
+export const TOTAL_SPEECH_SEC = 34 * 60;
+export const TOTAL_PREP_SEC   = 8 * 60;
+export const TOTAL_MATCH_SEC  = TOTAL_SPEECH_SEC + TOTAL_PREP_SEC;   // 42分
 
 export const Ruleset = z.object({
   id: z.literal('henda-20'),
-  version: z.string(),                 // 例 '2025-11-28'
+  version: z.string().min(1),          // 例 '2025-11-28'
   maxIssuesPerSide: z.literal(2),
   constructiveMaxWords: z.literal(600),
   maxWordsPerMinute: z.literal(150),
@@ -859,100 +889,161 @@ export const Ruleset = z.object({
   communicationPoints: z.object({ min: z.literal(1), max: z.literal(5), integerOnly: z.literal(true) }),
   tieBreak: z.literal('NEG'),          // 優劣がつけられない例外時は否定側
   stages: z.array(StageDef).length(12),
-  chairCues: z.array(z.object({ pattern: z.string(), stageNo: z.array(z.number()) })),
+  chairCues: z.array(ChairCue).min(1),
   evidenceRequirements: z.object({
-    factData: z.array(z.string()),     // ['source','year']
-    expert:   z.array(z.string()),     // ['name','credential']
-    news:     z.array(z.string()),     // ['outlet','date']
+    factData: z.array(z.string().min(1)).min(1),   // ['source','year']
+    expert:   z.array(z.string().min(1)).min(1),   // ['name','credential']
+    news:     z.array(z.string().min(1)).min(1),   // ['outlet','date']
   }),
-});
+})
+  // no が 1..12 の昇順で、重複・欠番がないこと
+  .refine(r => r.stages.every((s, i) => s.no === i + 1))
+  // スピーチ34分・準備8分・合計42分（HENDA_RULESET.md §1）
+  .refine(r => r.stages.reduce((a, s) => a + s.durationSec,  0) === TOTAL_SPEECH_SEC)
+  .refine(r => r.stages.reduce((a, s) => a + s.prepAfterSec, 0) === TOTAL_PREP_SEC)
+  .refine(r => r.stages.reduce((a, s) => a + s.durationSec + s.prepAfterSec, 0) === TOTAL_MATCH_SEC)
+  // 新しい Issue を出せるのは立論の2ステージだけ
+  .refine(r => r.stages.filter(s => s.allowsNewIssue).length === 2)
+  // 12ステージすべてに対応する定型句があること
+  .refine(r => {
+    const covered = new Set(
+      r.chairCues.filter(c => c.kind === 'stage_start').flatMap(c => c.stageNo));
+    return r.stages.every(s => covered.has(s.no));
+  });
 ```
+
+> **不変条件は `.refine()` に置いてある。これらは JSON Schema には現れない。**
+> `schemas/*.json` は形の記述であり検証器ではない。実際の検証は Zod が担う。
 
 ### 13.2 flow
 
+id は `DATA_MODEL.md` の全テーブルに合わせて uuid で受ける。
+サーバが割り当てる約束（§14 / `JUDGE_LOGIC.md` §2）を、
+「それらしい文字列」で通り抜けられなくするためである。
+
 ```ts
+// packages/core/src/schema/ids.ts
+export const Uuid = z.uuid();
+
+// packages/core/src/schema/flow.ts
 export const ReviewStatus = z.enum(['suggested','reviewed','confirmed','excluded']);
+export const IssueLabel   = z.enum(['AD1','AD2','DA1','DA2']);
 
 export const Issue = z.object({
-  id: z.string(),                      // サーバ割当
-  label: z.enum(['AD1','AD2','DA1','DA2']),
+  id: Uuid,                            // サーバ割当
+  label: IssueLabel,
   side: z.enum(['AFF','NEG']),
   title: z.string().max(120),
   reviewStatus: ReviewStatus,
-});
+  // Advantage は肯定側、Disadvantage は否定側
+}).refine(i => (i.label.startsWith('AD') ? i.side === 'AFF' : i.side === 'NEG'));
+
+/**
+ * role は議論の4構成要素 ＋ どれにも当たらない 'other' の5値
+ * （`ARGUMENT_MODEL.md` §1）。'evidence' は「なぜそう言えるか」を述べた言明で、
+ * ATTACKS の to になれる。引用の記録である evidence_refs とは別物（§1.1）。
+ */
+export const ArgumentRole = z.enum(['present','effect','importance','evidence','other']);
 
 export const ArgumentNode = z.object({
-  id: z.string(),
-  issueId: z.string().nullable(),
+  id: Uuid,
+  issueId: Uuid.nullable(),
   kind: z.enum(['CLAIM','ATTACK','DEFENSE','QUESTION','ANSWER','SUMMARY_POINT']),
-  role: z.enum(['present','effect','importance','other']).nullable(),
+  role: ArgumentRole.nullable(),
   stageNo: z.number().int().min(1).max(12),
   text: z.string(),
-  segmentIds: z.array(z.string()).min(1),   // 根拠時刻へ必ず戻れる
+  segmentIds: z.array(Uuid).min(1),    // 根拠時刻へ必ず戻れる
   reviewStatus: ReviewStatus,
 });
+
+/** やりとりの種別（`ARGUMENT_MODEL.md` §2）。ATTACKS と DEFENDS で語彙が別 */
+export const AttackEffectKind = z.enum([
+  'not_true','not_unique','not_necessary','no_link','no_solvency',
+  'not_important','value_turn','evidence_weak','logic_jump',
+]);
+export const DefendEffectKind = z.enum([
+  're_evidence','re_explain','counter_example','mitigate',
+]);
+export const EffectKind = z.enum([...AttackEffectKind.options, ...DefendEffectKind.options]);
 
 export const FlowLink = z.object({
-  id: z.string(),
-  from: z.string(),
-  to: z.string(),
+  id: Uuid,
+  from: Uuid,
+  to: Uuid,
   relation: z.enum(['ATTACKS','DEFENDS','EXTENDS','COMPARES','QUESTIONS','ANSWERS','CITES','DROPS']),
+  effectKind: EffectKind.nullable().default(null),
+  comparison: z.array(ComparisonAxis).default([]),   // ComparisonAxis は ARGUMENT_MODEL.md §5.1
   confidence: z.number().min(0).max(1),
   reviewStatus: ReviewStatus,
-});
+})
+  // effectKind は ATTACKS / DEFENDS のときだけ持ち、語彙もそれぞれの表に従う
+  // isAttackKind / isDefendKind は null に対して false を返す
+  .refine(l =>
+    l.relation === 'ATTACKS' ? isAttackKind(l.effectKind) :
+    l.relation === 'DEFENDS' ? isDefendKind(l.effectKind) :
+    l.effectKind === null)
+  // 比較を持てるのは COMPARES のリンクだけ。
+  // DB 側は CHECK (comparison IS NULL OR relation = 'COMPARES')（DATA_MODEL.md §6）
+  .refine(l => l.relation === 'COMPARES' || l.comparison.length === 0);
 
 export const RuleFlag = z.object({
-  id: z.string(),
+  id: Uuid,
   type: z.enum(['new_argument','extra_issue','over_time','over_word_limit',
                 'over_speech_rate','speaker_role_mismatch','evidence_incomplete',
                 'own_calculation','premature_rebuttal']),
-  targetRef: z.string(),
-  rationale: z.string(),
-  status: z.enum(['candidate','confirmed','rejected']),
+  targetRef: z.string().min(1),
+  rationale: z.string().min(1),
+  status: z.enum(['candidate','confirmed','rejected']),   // 候補止まり。自動で除外しない
 });
 ```
 
 ### 13.3 judge
 
 ```ts
+// packages/core/src/schema/judge.ts
 export const IssueAssessment = z.object({
-  issueId: z.string(),
+  issueId: Uuid,
   probability: z.enum(['Hi','Lo']),
   value: z.enum(['Large','Small']),
   strength: z.enum(['Strong','Weak','None']),
-  segmentIds: z.array(z.string()),
+  segmentIds: z.array(Uuid),
 });
 
+/** 比較演算が要る場合も順序関係だけを使い、差の大きさを数値化しない（JUDGE_LOGIC.md §1.1） */
+export const STRENGTH_ORDER = ['None','Weak','Strong'] as const;
+
 export const JudgeRun = z.object({
-  id: z.string(),
-  matchId: z.string(),
-  flowRunId: z.string(),
-  rulesetVersion: z.string(),
-  model: z.string(),
-  assessments: z.array(IssueAssessment).max(4),
-  votingIssueDraft: z.enum(['AD1','AD2','DA1','DA2']).nullable(),
+  id: Uuid,
+  matchId: Uuid,
+  flowRunId: Uuid,
+  rulesetVersion: z.string().min(1),
+  model: z.string().min(1),
+  assessments: z.array(IssueAssessment).max(4),   // AD/DA 各側最大2
+  votingIssueDraft: IssueLabel.nullable(),
   winnerDraft: z.enum(['AFF','NEG']).nullable(),
-  newArgumentFlags: z.array(z.string()),
+  newArgumentFlags: z.array(Uuid),
 });
 
 export const JudgeDecision = z.object({          // 人間の確定。AI案を上書きしない
-  id: z.string(),
-  matchId: z.string(),
+  id: Uuid,
+  matchId: Uuid,
   winner: z.enum(['AFF','NEG']),                // 引き分けは存在しない
-  votingIssue: z.enum(['AD1','AD2','DA1','DA2']),
+  votingIssue: IssueLabel,
   commPoints: z.object({
     aff: z.number().int().min(1).max(5),
     neg: z.number().int().min(1).max(5),
   }),
-  bestDebater: z.string().nullable(),
+  bestDebater: z.string().nullable(),           // 候補を出さない。人が入力する
   reason: z.string().min(1),
-  decidedBy: z.string(),
-  lockedAt: z.string().datetime().nullable(),
+  decidedBy: Uuid,
+  lockedAt: z.iso.datetime().nullable(),
 });
 ```
 
 > **スキーマ上で保証すること**  
-> 引き分けを表現できないこと（winnerはAFFかNEGの二択）、コミュニケーション点が1〜5の整数であること、AD/DAが各側2件までであること、ArgumentNodeが必ず1つ以上のsegmentIdを持つこと。これらは公式ルールを型で強制する箇所であり、実装の都合で緩めない。
+> 引き分けを表現できないこと（winnerはAFFかNEGの二択）、コミュニケーション点が1〜5の整数であること、AD/DAが各側2件までであること、ArgumentNodeが必ず1つ以上のsegmentIdを持つこと、`source='debater'` の ComparisonAxis が根拠segmentを持つこと。これらは公式ルールを型で強制する箇所であり、実装の都合で緩めない。
+>
+> **引き分けは型でも表現できない。** `winner: 'DRAW'` が実行時ではなくコンパイル時に落ちることを、`packages/core/src/schema/judge.test-d.ts` が `@ts-expect-error` で検査する。`@ts-expect-error` は書いただけでは何も保証しないので、型が緩むと「Unused '@ts-expect-error' directive」で typecheck が落ちる、という向きで効かせている。
 
 ### 13.4 バージョニング
 

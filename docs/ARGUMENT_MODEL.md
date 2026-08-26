@@ -172,12 +172,13 @@ Summary の `COMPARES` リンクに、比較の中身を持たせる。
 ### 5.1 スキーマ
 
 ```ts
+// packages/core/src/schema/flow.ts
 export const ComparisonAxis = z.object({
   axis: z.enum(['magnitude', 'probability', 'timeframe', 'value']),
   favors: z.enum(['AFF', 'NEG', 'neither']),
   rationale: z.string().min(1),
   source: z.enum(['debater', 'judge']),
-  segmentIds: z.array(z.string().uuid()),
+  segmentIds: z.array(Uuid),          // Uuid = z.uuid()（packages/core/src/schema/ids.ts）
 }).refine(
   o => o.source === 'judge' || o.segmentIds.length >= 1,
   'ディベーター由来の比較は根拠segmentを必須とする'
@@ -185,6 +186,9 @@ export const ComparisonAxis = z.object({
 ```
 
 `flow_links.comparison`（jsonb）に `ComparisonAxis[]` として保存する。
+**比較を持てるのは `relation = 'COMPARES'` のリンクだけである。**
+DB 側は `CHECK (comparison IS NULL OR relation = 'COMPARES')`（`DATA_MODEL.md` §6）、
+アプリ側は `FlowLink` の refine で担保する。
 
 ### 5.2 `source` を分ける理由
 
