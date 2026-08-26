@@ -7,3 +7,4 @@ export * from "./review";
 export * from "./flow";
 export * from "./judge";
 export * from "./match";
+export * from "./media";
