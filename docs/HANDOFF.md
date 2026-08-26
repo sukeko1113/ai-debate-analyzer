@@ -179,4 +179,409 @@ FlowLink.safeParse({ id, from, to, relation: "CITES", confidence: 0.5, reviewSta
 
 ## P2 から P3 への申し送り
 
-（P2 完了時に追記する）
+P2（`defineHandler`・matches・RLS・画面A）の作業中に、実際にコード・DB・CI を触って確認した事項。
+推測は含まない。確認した環境は Web版クラウドセッション
+（PostgreSQL 16.11 / zod 4.4.3 / vitest 4.1.11 / Next.js 16.3.2 / TypeScript 5.9）。
+
+### 件8 `install_pkgs.sh` が migrate まで見るようになった — 参考情報（件1 は解決）
+
+`npm ci` → `npm run db:migrate` の順に変えた（migrate は tsx で走るので依存が先に要る）。
+DB とロールを両方落としてから、セッション開始をそのまま再現した実測:
+
+```
+$ su postgres -c "psql -q -c 'DROP DATABASE IF EXISTS debate_dev'"
+$ su postgres -c "psql -q -c 'DROP ROLE IF EXISTS app_server'"
+$ su postgres -c "psql -q -c 'DROP ROLE IF EXISTS app_migrator'"
+$ rm -f .env.local
+$ CLAUDE_CODE_REMOTE=true bash scripts/install_pkgs.sh   → exit=0
+$ npm run test:db
+   Test Files  6 passed (6)
+        Tests  74 passed (74)
+```
+
+冪等性も実測。`install_pkgs.sh` を続けて3回走らせ、そのあと `test:db` が 74件合格。
+`npm run db:migrate` を2回続けて流しても
+`[notice] schema "drizzle" already exists, skipping` が出るだけで結果は変わらない。
+
+**マイグレーション失敗時も `exit 0` にしてある。** ここで止めると、
+マイグレーションを直したくても Claude Code が起動してこない。ログに `warning:` を出す。
+
+CI にも `npm run db:migrate` を `test:db` の後にもう一度流す step を足した（冪等性の検査）。
+
+---
+
+### 件9 `matches` の SELECT ポリシーに `created_by` が入っている — **P3 以降で意識が要る**
+
+理由・副作用・再検討の時期は `DATA_MODEL.md` §2.1 と
+`drizzle/0001_p2_match_core.sql` のポリシー直上のコメントに書いた。要点だけ再掲する。
+
+- **なぜ**: `INSERT ... RETURNING` は返す行に SELECT ポリシーを要求する。
+  match 作成直後は `match_access` の行がまだ無い（FK の順序上 `matches` が先）ため、
+  `match_access` だけを見るポリシーでは**自分で作った match が自分に見えない**。
+- **副作用**: 作成者は `match_access` から外されても（除名されても）その match を読める。
+- **いつ**: 共有機能（他の actor を招待し、外せるようにする PR）で見直す。
+
+**UPDATE ポリシーには `created_by` を入れていない。** 作成者であることは
+「更新してよい」を意味しない。見えるだけの穴を書き込みまで広げない。
+
+---
+
+### 件10 P2 の `match_access` には `owner` の行しか作れない — **P3 以降で判断が要る**
+
+INSERT ポリシーが「自分を、自分が作った match の owner として登録する」に限定されている。
+これを緩めないと権限昇格の穴になる（実測: 他人の match に自分を owner として足そうとすると
+`ERROR: new row violates row-level security policy for table "match_access"`）。
+
+結果として `member` / `viewer` の分岐は **DB を使ったテストでは通せない**。
+テーブル所有者（`app_migrator`）で行を挿し込もうとしても `FORCE ROW LEVEL SECURITY` に阻まれる。
+
+```
+$ migrator`INSERT INTO match_access (match_id, actor_id, role) VALUES (..., 'viewer')`
+  → code: 42501 / new row violates row-level security policy for table "match_access"
+```
+
+**そこで役割の判断を純粋関数 `accessDenial(role, required)` に切り出した**
+（`packages/core/src/db/repo/match-access.ts`）。
+`tests/unit/match-access.test.ts` が owner/member/viewer/null × read/write/owner の
+12通りすべてを確かめている。DB で作れないことを、検証しない理由にしない。
+
+**P3 以降の判断**: 共有機能を入れる PR で、招待用のエンドポイントと INSERT ポリシーを
+同時に足すこと。片方だけ入れると、ポリシーが通らずエンドポイントが 403 を返し続ける。
+
+---
+
+### 件11 RLS ポリシーの中で参照した表にも RLS が効く — 参考情報（P3 以降の全テーブルに効く）
+
+`matches` のポリシーが `match_access` を参照している。ポリシー式の中の副問い合わせにも
+RLS は適用されるので、`match_access` 側を「同じ match の誰かが見えるなら見える」と書くと
+自己参照になり `infinite recursion detected in policy for relation "match_access"` で落ちる。
+
+**`match_access` の SELECT は `actor_id = app_actor_id()`（自分の行だけ）に固定してある。**
+`matches` 側の EXISTS 条件と同じ形なので、絞り込み結果は変わらない。
+
+**`SECURITY DEFINER` 関数による再帰回避は、この設計では使えない。**
+全表に `FORCE ROW LEVEL SECURITY` を付けているため、関数の所有者（`app_migrator`）にも
+ポリシーが適用され素通りできない。`BYPASSRLS` を持つ専用ロールを作る案も、
+本番 Supabase で作れる保証がないため採らなかった。
+
+P3 以降で `media_sources` / `transcription_jobs` などのポリシーを書くときも、
+**`match_access` を直接参照する形（`EXISTS (SELECT 1 FROM match_access ma WHERE ...)`）**
+にすれば再帰しない。`matches` を経由すると 2 段になるので避けたほうが読みやすい。
+
+---
+
+### 件12 テーブル所有者では DB テストが書けない — 参考情報（実際に 1 回踏んだ）
+
+`FORCE ROW LEVEL SECURITY` があり、ポリシーはすべて `TO app_server` である。
+つまり **`app_migrator`（所有者）で SELECT すると 0 行しか返らない。**
+
+最初 `edit_logs` の件数を `migratorClient()` で数えるテストを書いたところ、
+
+```
+AssertionError: expected [] to have a length of 5 but got +0
+```
+
+で落ちた。さらに悪いことに、「変更前と変更後の件数が同じ」を確かめる形だと
+**0 と 0 を比べて通ってしまう**（実際に一度通った）。
+
+対策として `tests/db/helpers/api.ts` に `readAsActor(actorId, fn)` を置いた。
+**DB の中身を確かめるときは、必ず `app_server` 接続 ＋ `withActor` で読むこと。**
+所有者接続でよいのは `TRUNCATE` や `pg_class` / `pg_policies` の参照など、
+行レベルの操作でないものだけである。
+
+---
+
+### 件13 postgres.js のトランザクションは、1 つ失敗すると全体が巻き戻る — 参考情報
+
+「例外が出ること」を確かめるテストを 1 つの `withActor` の中に複数書くと、
+最初の例外でトランザクションが中断し、**`withActor` 自身が reject する**ので
+`await expect(...).rejects` で受けたはずのものが外へ抜けてテストが落ちる。
+
+検査ごとに `withActor` を開き直すか、`tx.savepoint()` を使うこと。
+P4 でジョブの状態遷移を検査するときに同じ形を書くはずなので、先に書いておく。
+
+---
+
+### 件14 `defineHandler` の使い方 — P3 以降のすべてのエンドポイントが通る
+
+```ts
+export const POST = defineHandler({
+  auth: "match:write",              // authenticated / match:read / match:write / match:owner
+  params: z.object({ id: z.uuid() }),
+  body: SomeReq,
+  requireExpectedVersion: true,     // 更新系は必ず付ける
+  idempotency: "required",          // 副作用のある POST
+  handler: async ({ params, body, actor, tx, audit, ruleset }) => {
+    audit.record({ entity: "...", entityId, matchId, before, after });
+    return { data: ..., status: 200 };
+  },
+});
+```
+
+守るべき点を実装したうえで気づいたこと。
+
+- **`audit.record()` を呼ばない変更系ハンドラは 500 で落ちる。**
+  警告ではなく例外にしてある。警告にすると、記録の無い変更がいつか必ず本番へ出る。
+  実測: `round` を UPDATE して `audit.record()` を忘れたハンドラは 500 になり、
+  トランザクションごと巻き戻って `round` は null のまま残った。
+- **`updateWithVersion()` / `bumpVersion()` を使うこと**（`packages/core/src/db/optimistic.ts`）。
+  条件付き UPDATE が 0 行のとき、RLS で見えていないのか版がずれているのかを切り分け、
+  それぞれ `404` と `409 VERSION_CONFLICT`（`details.currentVersion` 付き）にする。
+  route ごとに書くと必ず片方を忘れる。
+- **`auth: "match:*"` は既定で `params.id` を match id とみなす。**
+  `/segments/{id}` のように id が match でないエンドポイント（P4 以降で出てくる）では
+  `matchIdFrom` を渡すこと。渡し忘れると「match id を特定できません」の 500 になる。
+- **他人の match は 403 ではなく 404 を返す。** 403 だと存在が漏れる。
+- **`internal`（`X-Job-Secret`）の認証は入れていない。** P2 に該当エンドポイントが無いため。
+  P4 で `/api/v1/internal/jobs/run` を作るときに `AuthMode` へ足すこと。
+  「常に 500 を返す分岐」を先に置くと、実装済みに見えて動かない経路が残る。
+
+新しい route を足したら `npm run check-handler-routes` が守る（CI に入れてある）。
+`defineHandler({...})` 以外を export した `app/api/**/route.ts` は落ちる。
+
+---
+
+### 件15 JWT は HS256 実装。実 Supabase での疎通は未確認 — **P3 以降で判断が要る**
+
+`packages/core/src/auth/jwt.ts` は **HS256（Supabase の legacy JWT secret 方式）だけ**を扱う。
+`node:crypto` で検証しているので依存は増えていない。
+
+**クラウドセッションに実 Supabase の鍵を置けないため
+（`DEV_ENVIRONMENTS.md` §3）、実 Supabase が発行したトークンでの疎通は検証していない。**
+`tests/unit/jwt.test.ts` が確かめているのは、自前で署名したトークンに対する検証器の挙動である
+（署名不一致・`alg: none`・`alg` すり替え・`exp` 欠落・期限切れ・`nbf`・`sub` が uuid でない、の7通り）。
+
+**判断が要る点**: 実 Supabase のプロジェクトが非対称鍵（JWKS / ES256・RS256）方式なら、
+`verifySupabaseJwt` の署名検証部分を差し替える必要がある。
+Supabase のプロジェクト設定を確認できる人が、P3 以降のどこかで確かめること。
+差し替え箇所は `verifySupabaseJwt` 1 関数に閉じている。
+
+あわせて:
+
+- **秘密鍵が未設定のときに検証を飛ばす分岐は作っていない。** 設定エラーとして 500 で落ちる。
+  作った瞬間、設定漏れの本番が無認証になる。
+- `SUPABASE_JWT_SECRET` を env に足した（`.env.example` も更新済み）。
+  クラウドセッションでは `install_pkgs.sh` が `devonly-jwt-secret` を `.env.local` に書く。
+  **これはセッション内だけの値であり、実 Supabase の鍵ではない。**
+- `sub` が uuid でないトークンは 401 で弾いている。弾かないと `app.actor_id` の
+  型変換で RLS が落ち、原因の分かりにくい 500 になる。
+
+---
+
+### 件16 承認済みの仕様変更（3件）— 判断済み
+
+2026-08-26 に利用者が承認。`API_SPEC.md` のスニペットと実装が食い違う箇所なので記録する。
+
+1. **`ConsentReq` に `expectedVersion` を足した。**
+   §1 のスニペットには無いが、§0.3 が「`lock_version` を持つ全エンティティの更新は
+   `expectedVersion` を必須とする」と定めており、consent の記録は `matches` の更新である。
+   §1 の書き漏らしとして扱う（利用者が「私の書き漏らしでした」と明言）。
+2. **`POST /api/v1/matches` の `Idempotency-Key` を必須にした。**
+   §0.4 の「ジョブ作成・エクスポート作成**など**、副作用のあるPOST」に含める読み。
+   画面Aの二重送信で試合が二つできるのは実際に起きる事故である。
+3. **P2 における「解析を開始しようとする」を `matches.status` の `draft` 離脱と定義した。**
+   P2 に `transcription_jobs` が無いため。P4 は同じ `assert_consent_recorded()` を
+   ジョブ表のトリガから呼ぶこと（件17）。
+
+`API_SPEC.md` 本体はまだ直していない。直すなら 1 と 2 を §1 / §0.4 に反映すること。
+
+---
+
+### 件17 許諾は API と DB の両方で拒否している — 参考情報（P4 で続きがある）
+
+- API: `PATCH /matches/{id}` が `status` を `draft` から動かすとき、
+  `consent_recorded_at` が null なら `409 CONSENT_REQUIRED`。
+- DB: `matches_require_consent_trg`（BEFORE INSERT OR UPDATE ON matches）が
+  `SQLSTATE AD001` で落とす。実測メッセージ:
+
+```
+ERROR:  許諾が記録されていないため status を analyzing にできません（match_id=68ecdd93-...）
+CONTEXT:  PL/pgSQL function matches_require_consent() line 4 at RAISE
+```
+
+**P4 でやること**: `transcription_jobs` の BEFORE INSERT トリガから
+`public.assert_consent_recorded(match_id)` を呼ぶ。**条件を書き直さない。**
+この関数は `SECURITY INVOKER` なので、呼び出し元のロールで `matches` を読む。
+RLS が効くため、**見えない match は「許諾なし」に見える＝拒否側に倒れる**（実測済み）。
+
+独自 SQLSTATE を 2 つ定義した（`AD` で始まるクラスは Postgres の標準に無い）。
+
+| SQLSTATE | 意味 | `defineHandler` の変換先 |
+| --- | --- | --- |
+| `AD001` | 許諾未記録のまま解析へ進もうとした | `409 CONSENT_REQUIRED` |
+| `AD002` | 追記専用テーブルを UPDATE / DELETE しようとした | `500 INTERNAL` |
+
+`edit_logs` の UPDATE / DELETE には**あえてポリシーを置いてある**。
+置かないと RLS が先に効いて「0行更新」で静かに成功し、呼び出し側は消えたと誤解する。
+ポリシーで通し、トリガで明示的に落とす。
+
+---
+
+### 件18 `api_idempotency_keys` を足した — 参考情報
+
+`API_SPEC.md` §0.4 は `Idempotency-Key` を必須と定めながら、記録先を定義していなかった。
+`DATA_MODEL.md` §2 に追記済み（同じ PR で反映した）。
+
+- PK(`actor_id`, `key`)。RLS は自分のキーだけ。
+- 同じキー＋同じ `request_hash` の再送は、**新規作成せず保存済みの応答を 200 で返す**
+  （作成時が 201 でも再送は 200。`Idempotent-Replay: true` ヘッダを付けている）。
+- 同じキーで内容が違えば 400。
+- **記録と再送判定はハンドラ本体と同じトランザクション内で行っている。**
+  外に出すと、記録の直前に落ちたときに二重実行できてしまう。
+- `transcription_jobs.idempotency_key`（§4）とは別物。P4 は DB 側の冪等キー
+  （`match_id + kind + target_stage_no + params_hash`）も持つので、**両方**になる。
+
+---
+
+### 件19 担当者表は保存していない — 参考情報
+
+`rosterFor(ruleset, teamSize)` を足した（`packages/core/src/ruleset/roster.ts`）。
+件4 の `seatFor()` を 12 ステージ分まとめただけの薄いものである。
+
+**API のレスポンスにも画面Aにも、同じ関数の結果を載せている。** 保存しない。
+保存すると ruleset の改定で古い表が残る。
+
+実測（件4 の値が表になっても保たれていること）:
+
+- `rosterFor(henda20, 4)` の ⑪ は `A4`、`rosterFor(henda20, 3)` の ⑪ は `A1`
+- 4人と3人で担当が変わるのは **②④⑪⑫ の4ステージだけ**
+- 3人チームの表に `A4` / `N4` は現れない
+
+`GET /api/v1/matches/{id}` は、出場者がまだ 1 人も登録されていないとき **teamSize を 4 とみなす**
+（条項 2.2 の既定。3人登録は病欠等の例外）。`matches` に `team_size` 列は無く、
+`match_members` の行が持っている（`DATA_MODEL.md` §2 のまま）。
+1 試合の中で食い違わせないため、`PUT /members` は**必ず全削除 → 全挿入**で置換する。
+部分更新の経路は作っていない。
+
+---
+
+### 件20 画面Aは認証導線を持っていない — **P3 以降で判断が要る**
+
+`app/matches/new/` は JWT を**手で貼り付ける**入力欄を持っている。
+Supabase Auth のログイン画面は P2 の範囲外だったためである。
+
+**判断が要る点**: ログイン導線をどの PR で入れるか。
+画面B（メディア取り込み・P3）も同じトークンが要るので、P3 の着手時に決めるのが自然である。
+`supabase-js` を使うのは Auth と Storage だけであり、**DB アクセスには使わない**
+（eslint の `no-restricted-imports` が `packages/core/src/storage/**` と
+`packages/core/src/auth/**` 以外での import を落とす。現状 `auth/jwt.ts` は
+`node:crypto` しか使っていない）。
+
+e2e（`e2e/match-register.spec.ts`）が確かめているのは**担当者表の切り替えと入力欄の増減だけ**である。
+CI の e2e ジョブに Postgres が無いので、送信までは e2e に含めていない。
+送信の検証は `tests/db/api-matches.test.ts` が実際の route を叩いて行っている。
+
+**画面の見た目（レイアウトが崩れないか）は当方では確認していない。**
+
+---
+
+### 件21 route を Next のサーバ無しでテストできる — 参考情報
+
+`defineHandler` が返すのは素の `(request, context) => Promise<Response>` である。
+そのため **出荷する `route.ts` をそのまま import して呼べる**。
+
+```ts
+import { POST as createMatchRoute } from "../../app/api/v1/matches/route";
+const res = await call(createMatchRoute, "POST", "/matches", { actorId, body, idempotencyKey });
+```
+
+`vitest.config.ts` に `@core` の alias を足してある（`tsconfig.json` の `paths` と同じ対応）。
+**`projects` の各要素にも書くこと。** ルートの `resolve` だけでは効かない。
+
+DB も RLS も本物なので、「ハンドラを模したもの」ではなく実際の経路を検証している。
+P3 以降のエンドポイントも同じ形で書けば、Next を起動せずに契約を検査できる。
+
+---
+
+### 件22 negative test が空回りしていないことを、壊して確かめた — 参考情報
+
+「拒否されること」を確かめるテストは、**拒否の仕組みを外したときに落ちなければ意味がない**。
+P2 では実際に一つずつ壊して確認した。以下すべて実測値である。
+
+**① アプリの認可分岐を外す（受け入れ基準3）**
+
+`assertMatchAccess` の `matchIsVisible` と `accessDenial` を無効化した状態で `rls-matches.test.ts`:
+
+```
+Tests  12 passed (12)
+```
+
+**分岐を外しても他人の match は見えない。** RLS だけで守れている。
+`GET` が 404 のままなのは、`requireMatch` が RLS で 0 行を受け取って `NOT_FOUND` を投げるため。
+
+**② RLS ポリシーを緩める（テストが空回りしていないことの確認）**
+
+`matches_select_member` を `USING (true)` に差し替えると:
+
+```
+× 生の SELECT でも、他人の match は 0 行
+× リポジトリ関数を直接呼んでも見えない（assertMatchAccess を経由しない）
+× app.actor_id を設定しない経路では 1 行も見えない
+× GET は 404（403 で存在を漏らさない）
+× PATCH も 404
+Tests  5 failed | 7 passed (12)
+```
+
+**①と②の対比が受け入れ基準3の証拠である。** アプリを外しても守られ、RLS を外すと守られない。
+
+**③ `edit_logs` 書き忘れの検出を外す（受け入れ基準6）**
+
+`if (mutates && audit.size === 0)` を無効化すると:
+
+```
+× 変更系なのに何も記録しないハンドラは 500 で落ちる
+Tests  1 failed | 13 passed (14)
+```
+
+**④ `requireExpectedVersion` を外す（受け入れ基準1）**
+
+```
+× body スキーマが expectedVersion を要求し忘れても 400 で止まる
+× 整数でない expectedVersion も通さない
+Tests  2 failed | 12 passed (14)
+```
+
+**⑤ DB トリガを外す（受け入れ基準4の DB 側）**
+
+`DROP TRIGGER matches_require_consent_trg ON matches` のあと:
+
+```
+× consent_recorded_at が null のまま status を draft から動かすと SQLSTATE AD001 で拒否される
+× INSERT の時点で draft 以外にしようとしても拒否される（トリガの抜け道を作らない）
+Tests  2 failed | 13 passed (15)
+```
+
+**⑥ API 側の許諾チェックだけを外す（受け入れ基準4の二重化）**
+
+`app/api/v1/matches/[id]/route.ts` の consent 分岐を無効化しても:
+
+```
+Tests  21 passed (21)
+```
+
+**API の分岐を外しても 409 CONSENT_REQUIRED が返る。**
+DB トリガが `AD001` を投げ、`toApiError` が `CONSENT_REQUIRED` へ写すためである。
+⑤と⑥で、API と DB の**どちらか一方だけを外しても止まる**ことが確かめられている。
+
+> **注意**: ②と⑤で DB を直接いじったあと、`npm run db:migrate` では元に戻らない。
+> drizzle は `__drizzle_migrations` を見て適用済みを飛ばすためである。
+> `DROP DATABASE debate_dev` してから `install_pkgs.sh` を流し直すこと（実測でこれが要った）。
+
+---
+
+### そのほか（参考情報）
+
+- **`z.iso.date()` / `z.iso.datetime()` を使っている。** API_SPEC.md のスニペットは
+  `z.string().date()` と書いているが、zod 4 では `z.iso.date()` が対応する。
+- `postgres.js` の `date` 型は文字列で、`timestamptz` は `Date` で返る。
+  `packages/core/src/db/repo/matches.ts` の `isoDate()` がその差を吸収している。
+- **`schemas/` に Match 系 5 件を足した**（`match` / `create-match-req` / `patch-match-req` /
+  `consent-req` / `put-members-req`）。件7 のとおり `io: "input"` 固定なので、
+  これらは「クライアントが送ってよい形」である。レスポンス側の output 版は**まだ無い**。
+  必要になったら P3 以降で決めること。
+- `env.schema.json` は `SUPABASE_JWT_SECRET` の追加で差分が出る。再生成済み。
+- **`packages/core/src/db/pool.ts` の `getSql()` は遅延生成である。**
+  モジュール読み込み時に接続を作ると、`DATABASE_URL` の無い CI の `next build` が落ちる。
+  同じ理由で `startup.ts` は `parseEnv()` 全体を呼ばず、`RULESET_DEFAULT` だけを見ている（件3）。
+- CI に `check-handler-routes`（quality ジョブ）と、`test:db` 後の `db:migrate` 再実行
+  （database ジョブ・冪等性の検査）を足した。

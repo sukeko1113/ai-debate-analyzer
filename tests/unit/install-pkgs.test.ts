@@ -31,6 +31,43 @@ describe("scripts/install_pkgs.sh が生成する .env.local", () => {
   });
 });
 
+describe("scripts/install_pkgs.sh がマイグレーションまで面倒を見る（P2 受け入れ基準7）", () => {
+  // 対応前の実測（HANDOFF.md 件1）: 新しいクラウドセッションで最初に npm run test:db を叩くと
+  //   PostgresError: function public.app_actor_id() does not exist
+  //   Test Files  2 failed (2) / Tests  12 skipped (12)
+  // で落ちていた。install_pkgs.sh が migrate を流さなかったためである。
+  const script = readFileSync(SCRIPT, "utf8");
+
+  it("db:migrate を実行する", () => {
+    expect(script).toMatch(/npm run db:migrate/);
+  });
+
+  it("依存の導入がマイグレーションより前にある", () => {
+    // migrate は tsx（node_modules）で走る。順序が逆だと初回セッションで必ず失敗する
+    const npmCi = script.lastIndexOf("npm ci");
+    const migrate = script.indexOf("npm run db:migrate");
+    expect(npmCi).toBeGreaterThan(-1);
+    expect(migrate).toBeGreaterThan(npmCi);
+  });
+
+  it("マイグレーションが失敗してもセッションを止めない", () => {
+    // ここで exit 1 すると、マイグレーションを直したくても Claude Code が上がってこない
+    const tail = script.slice(script.indexOf("npm run db:migrate"));
+    expect(tail).toMatch(/warning:/);
+    expect(tail.trimEnd().endsWith("exit 0")).toBe(true);
+  });
+
+  it("JWT の検証鍵を .env.local に書く（API が 500 にならないように）", () => {
+    const heredoc = script.slice(script.indexOf("cat > .env.local"), script.indexOf("\nEOF"));
+    expect(heredoc).toMatch(/^SUPABASE_JWT_SECRET=/m);
+  });
+
+  it("実 Supabase の接続先を書かない", () => {
+    // クラウドセッションから実 Supabase へは接続しない（DEV_ENVIRONMENTS.md §2）
+    expect(script).not.toMatch(/supabase\.co|pooler\.supabase\.com/);
+  });
+});
+
 describe("scripts/install_pkgs.sh（ローカル分岐）", () => {
   it("package.json が無いディレクトリで実行しても何も作らない", () => {
     execFileSync("bash", [SCRIPT], {

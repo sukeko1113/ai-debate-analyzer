@@ -7,8 +7,12 @@
   "exports": {
     "./env": "./src/env.ts",
     "./ruleset": "./src/ruleset/index.ts",
+    "./ruleset/roster": "./src/ruleset/roster.ts",
     "./schema": "./src/schema/index.ts",
     "./db": "./src/db/index.ts",
-    "./db/schema": "./src/db/schema.ts"
+    "./db/schema": "./src/db/schema.ts",
+    "./auth": "./src/auth/jwt.ts",
+    "./http": "./src/http/index.ts",
+    "./startup": "./src/startup.ts"
   }
 }

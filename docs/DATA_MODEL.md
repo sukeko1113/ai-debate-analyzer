@@ -123,6 +123,17 @@ USING (EXISTS (
 > `consent_recorded_at` が null の match に対する転写ジョブ作成は
 > **API（`409 CONSENT_REQUIRED`）とDBトリガの両方で拒否する。**
 
+DB側の実体は `public.assert_consent_recorded(match_id)`（`SECURITY INVOKER`）である。
+呼び出し元のロールで `matches` を読むのでRLSが効き、**見えない match は
+`consent_recorded_at` が null に見える＝拒否側に倒れる**。
+
+- P2: `matches_require_consent_trg`（BEFORE INSERT OR UPDATE ON matches）。
+  `status` が `draft` を離れるとき、許諾が無ければ止める。
+  P2 に `transcription_jobs` はまだ無いので、「解析を開始しようとする」を
+  **`status` が `draft` を離れること**と定義している。
+- P4: 同じ `assert_consent_recorded()` を `transcription_jobs` の
+  BEFORE INSERT トリガから呼ぶこと。**条件を書き直さない。** 二か所に書くと必ずずれる。
+
 ### `match_members`
 `id`, `match_id`, `side`(`AFF`/`NEG`), `seat`(`A1`〜`N4`), `display_name`（C削除時 null）,
 `team_size`(3 or 4), `lock_version`
@@ -133,6 +144,82 @@ UNIQUE(`match_id`, `side`, `seat`)
 `match_id`, `actor_id`, `role`(`owner`/`member`/`viewer`)
 
 RLSポリシーの参照先。PK(`match_id`, `actor_id`)
+
+> **P2 の時点で作れるのは `owner` の行だけである。**
+> 「作成者が自分を owner として登録する」以外の INSERT をポリシーが許していない。
+> `member` / `viewer` の行を作る経路（共有機能）は後のPRで入る。
+> それまで `role` の3値は、**語彙としては定義済み・データとしては owner のみ**である。
+
+### `api_idempotency_keys`（v05でP2に追加）
+`actor_id`, `key`, `endpoint`, `request_hash`, `status_code`, `response` jsonb, `created_at`
+
+PK(`actor_id`, `key`)
+
+`API_SPEC.md` §0.4 の `Idempotency-Key` を記録する場所。
+v04ではヘッダを必須と定めながら、記録先を定義していなかった。
+
+- 同じキー＋同じ `request_hash` の再送は、**新規作成せず保存済みの `response` を200で返す**。
+- 同じキーで `request_hash` が違えば `400`。
+- `transcription_jobs.idempotency_key`（§4）とは別物である。
+  §0.4 が言う「DB側でも別途担保する」の**API側**にあたり、両方を持つ。
+- 記録と再送判定は、ハンドラ本体と**同じトランザクション内**で行う。
+  外に出すと、記録の直前に落ちたときに二重実行できてしまう。
+
+---
+
+## 2.1 試合まわりのRLS（P2で確定）
+
+ポリシーの実体は `drizzle/0001_p2_match_core.sql` にある。設計上の要点は3つ。
+
+### 再帰させない
+
+`matches` のSELECTポリシーは `match_access` を参照する。
+**ポリシー式の中で参照した表にもRLSは適用される**ので、`match_access` 側を
+「同じmatchの誰かが見えるなら見える」と書くと自己参照になり、
+`infinite recursion detected in policy for relation "match_access"` で落ちる。
+
+そのため `match_access` のSELECTは **`actor_id = app_actor_id()`（自分の行だけ）** に限定する。
+`matches` 側のEXISTS条件と同じ形なので、絞り込みの結果は変わらない。
+
+一般的な再帰回避である `SECURITY DEFINER` 関数は**使えない**。
+全表に `FORCE ROW LEVEL SECURITY` を付けているため、関数の所有者（`app_migrator`）にも
+ポリシーが適用され、素通りできないからである。
+`BYPASSRLS` を持つ専用ロールを作る案も、本番Supabaseで作れる保証がないため採らない。
+
+### `matches` のSELECTポリシーが `created_by` を見る理由と、その副作用
+
+```sql
+USING (created_by = public.app_actor_id()
+    OR EXISTS (SELECT 1 FROM match_access ma
+                WHERE ma.match_id = matches.id AND ma.actor_id = public.app_actor_id()))
+```
+
+**なぜ必要か**: `INSERT ... RETURNING` は、返す行に対してSELECTポリシーを要求する。
+match を作った直後は `match_access` の行がまだ存在しない（FKの順序上、`matches` を
+先に入れないと `match_access` を入れられない）ため、`match_access` だけを見るポリシーだと
+**自分で作った match が自分に見えない**。
+
+**副作用**: 作成者は、あとで `match_access` から外されても（除名されても）この match を読める。
+共有段階の権限管理としては抜け穴である。P2の時点では共有も除名も機能として存在しないため
+実害はないが、放置してよい性質ではない。
+
+**いつ再検討するか**: 共有機能（他のactorを `match_access` へ招待し、外せるようにするPR）で見直す。
+そのときは `created_by` を落とし、「INSERTの直後だけ通す」ための別経路
+（作成専用の関数か、`match_access` を先に入れられるようFKを遅延させる）に置き換える。
+
+なお **UPDATEポリシーは `created_by` を見ない**。作成者であることは「更新してよい」を意味しない。
+見えるだけの穴を、書き込みまで広げない。
+
+### `match_access` のINSERTを絞る
+
+```sql
+WITH CHECK (actor_id = public.app_actor_id() AND role = 'owner'
+        AND EXISTS (SELECT 1 FROM matches m
+                     WHERE m.id = match_access.match_id AND m.created_by = public.app_actor_id()))
+```
+
+`actor_id = app_actor_id()` だけでは足りない。それだけだと、**任意の `match_id` を指定して
+自分に権限を生やせる**（権限昇格）。`match_id` の正当性を必ず見る。
 
 ---
 
@@ -399,6 +486,20 @@ CREATE TRIGGER edit_logs_no_delete BEFORE DELETE ON edit_logs
 `SECURITY DEFINER` 関数 `redact_edit_logs(match_id, level)` だけが
 `before` / `after` の該当キーを `null` にできる。その操作も `retention_events` に記録する。
 
+> **UPDATE / DELETE にもRLSポリシーを置いてある。**
+> 置かないとRLSが先に効いて「0行更新」で静かに成功してしまい、
+> 呼び出し側は消えたと誤解する。ポリシーで通し、トリガで明示的に落とす。
+
+### 独自SQLSTATE
+
+トリガが投げる例外は、`defineHandler` がHTTPのエラーコードへ写す
+（`packages/core/src/http/errors.ts`）。`AD` で始まるクラスはPostgresの標準に無い。
+
+| SQLSTATE | 意味 | HTTP |
+| --- | --- | --- |
+| `AD001` | 許諾未記録のまま解析へ進もうとした | `409 CONSENT_REQUIRED` |
+| `AD002` | 追記専用テーブルを UPDATE / DELETE しようとした | `500 INTERNAL`（呼び出し側のバグ） |
+
 > `edit_logs` を忘れると、本文や氏名がここに残り続け、
 > 「消したつもりで残っている」状態になる。
 
@@ -413,3 +514,10 @@ CREATE TRIGGER edit_logs_no_delete BEFORE DELETE ON edit_logs
 | 学校運用 | 学校テナントを導入し、テナント境界でポリシーを追加 |
 
 **MVPの段階からRLSを有効にする。** 後から有効化すると、既存の全クエリを見直すことになる。
+
+P2で入った試合まわりのポリシーは §2.1 に書いてある。
+共有段階へ進むPRでは、次の2点を必ず扱うこと。
+
+1. `match_access` に `member` / `viewer` の行を作る経路と、それを許すINSERTポリシー
+   （現状は「作成者が自分をownerとして登録する」しか通らない）
+2. `matches` のSELECTポリシーから `created_by` を落とすこと（§2.1 の副作用）

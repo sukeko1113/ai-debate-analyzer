@@ -8,6 +8,8 @@
 # クラウド:
 #   - セッション内 PostgreSQL 16 を起動し、本番と同じロール構成を作る
 #   - 依存を導入する
+#   - マイグレーションを適用する（これが無いと npm run test:db が
+#     「function public.app_actor_id() does not exist」で落ちる。P1 からの申し送り 件1）
 # ローカル:
 #   - 依存が無いときだけ導入する。DB は各自の環境に任せる
 #
@@ -21,6 +23,7 @@ log() { echo "[install_pkgs] $*"; }
 
 PG_DB="debate_dev"
 PG_PASS="devonly"          # セッション内だけの値。秘密ではない
+JWT_SECRET="devonly-jwt-secret"   # 同上。実 Supabase の鍵ではない
 DB_URL="postgres://app_server:${PG_PASS}@127.0.0.1:5432/${PG_DB}"
 DIRECT_URL="postgres://app_migrator:${PG_PASS}@127.0.0.1:5432/${PG_DB}"
 
@@ -66,12 +69,39 @@ cat > .env.local <<EOF
 # NODE_ENV は next が各コマンドで自分で決める。
 DATABASE_URL=${DB_URL}
 DIRECT_URL=${DIRECT_URL}
+# JWT の検証鍵（API_SPEC.md §0.2）。**このセッション内だけの値であり秘密ではない。**
+# 実 Supabase の鍵はここにも、クラウド環境の設定にも置かない（DEV_ENVIRONMENTS.md §3）。
+# 未設定だと API が 500 になる。認証を素通りさせる分岐は用意していない
+SUPABASE_JWT_SECRET=${JWT_SECRET}
 EOF
 
 # --- 依存 ---------------------------------------------------------------------
+# マイグレーションは tsx（node_modules）で流すので、依存の導入を先に済ませる。
 if [ -f package.json ] && [ ! -d node_modules ]; then
   log "cloud: npm ci"
   npm ci || npm install || true
+fi
+
+# --- マイグレーション -----------------------------------------------------------
+# これが無いと、新しいセッションの最初の `npm run test:db` が
+#   PostgresError: function public.app_actor_id() does not exist
+# で落ちる（HANDOFF.md「P1 から P2 への申し送り」件1）。
+#
+# 冪等である。drizzle が __drizzle_migrations に適用済みを記録しており、
+# 二度目以降は何も流れない。SQL 自体も IF NOT EXISTS / OR REPLACE /
+# DROP ... IF EXISTS → CREATE で書いてある。
+#
+# 失敗してもセッションは起動させる（exit 0）。ここで止めると、
+# マイグレーションを直したくても Claude Code が上がってこない。
+if [ -d node_modules ]; then
+  log "cloud: applying migrations"
+  if DATABASE_URL="${DB_URL}" DIRECT_URL="${DIRECT_URL}" npm run db:migrate --silent; then
+    log "cloud: migrations applied"
+  else
+    log "warning: マイグレーションに失敗しました。npm run db:migrate を手動で確認してください"
+  fi
+else
+  log "warning: node_modules が無いためマイグレーションを飛ばしました"
 fi
 
 log "cloud: done"
