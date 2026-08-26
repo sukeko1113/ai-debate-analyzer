@@ -15,3 +15,5 @@ next-env.d.ts
 docs/
 CLAUDE.md
 README.md
+fixtures/gold-01/speeches/
+fixtures/gold-01/*.md

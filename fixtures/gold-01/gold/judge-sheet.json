@@ -26,8 +26,14 @@
       "rationale": "因果の方向は最後まで否定されなかった。⑤の攻撃は規模を争っており方向を認めている。しかし9.6億ドルは⑨でAFF自身が撤回し、増加分の規模は示されないまま終わった。",
       "keyMoments": [
         { "stageNo": 5, "cue": "If Solera is larger, it absorbs a surge that Meridia cannot." },
-        { "stageNo": 9, "cue": "She is right that we did not read out its source, and I will not pretend otherwise. So set it aside." },
-        { "stageNo": 11, "cue": "So the advantage stands at a smaller size than we claimed, and it stands." }
+        {
+          "stageNo": 9,
+          "cue": "She is right that we did not read out its source, and I will not pretend otherwise. So set it aside."
+        },
+        {
+          "stageNo": 11,
+          "cue": "So the advantage stands at a smaller size than we claimed, and it stands."
+        }
       ]
     },
     {
@@ -37,7 +43,10 @@
       "strength": "None",
       "rationale": "到着から教育までの最後の段階が最後まで証明されなかった。⑪でAFF自身が『支持的な理由であって肯定する理由ではない』と位置づけた。",
       "keyMoments": [
-        { "stageNo": 5, "cue": "Between arrivals and education there are three steps, and the affirmative proved none of them." },
+        {
+          "stageNo": 5,
+          "cue": "Between arrivals and education there are three steps, and the affirmative proved none of them."
+        },
         { "stageNo": 11, "cue": "It is a supporting reason, not the reason to affirm." }
       ]
     },
@@ -48,10 +57,19 @@
       "strength": "Strong",
       "rationale": "この試合で最も強い論点。AFFは三度にわたりビザ審査を攻撃したが、NEGの主張は健康申告だった（⑫）。因果の接続は一度も直接攻撃されていない。固有性は40%分削られたが、⑧でKen自身が残り60%の部分的価値を認めた。",
       "keyMoments": [
-        { "stageNo": 3, "cue": "this declaration is the only health information our border service receives before arrival" },
-        { "stageNo": 4, "cue": "So forty percent of the world already arrives without one, today." },
+        {
+          "stageNo": 3,
+          "cue": "this declaration is the only health information our border service receives before arrival"
+        },
+        {
+          "stageNo": 4,
+          "cue": "So forty percent of the world already arrives without one, today."
+        },
         { "stageNo": 8, "cue": "Partial value, yes." },
-        { "stageNo": 12, "cue": "Our argument is still standing because they have spent three speeches attacking something we did not claim." }
+        {
+          "stageNo": 12,
+          "cue": "Our argument is still standing because they have spent three speeches attacking something we did not claim."
+        }
       ],
       "note": "Alvarez医師の証言は肩書が述べられておらず信憑性を割り引く（violation V7）。ただし2019年の流行という事実自体は争われていない。"
     },
@@ -63,8 +81,14 @@
       "rationale": "価値は大きく、不可逆性という性質も正しく強調された。しかし因果の中間の一歩（新規訪問者がVeranoに集中する）を否定側自身が二度、推論であると認めた。さらに石段の摩耗はビザ制度下の10年で起きており、固有性も示されていない。",
       "keyMoments": [
         { "stageNo": 4, "cue": "The report shows the pressure. The reasoning is ours." },
-        { "stageNo": 7, "cue": "The wear they describe happened under the system they are defending." },
-        { "stageNo": 10, "cue": "Correct, and I said so in questioning. But his alternative is also reasoning" }
+        {
+          "stageNo": 7,
+          "cue": "The wear they describe happened under the system they are defending."
+        },
+        {
+          "stageNo": 10,
+          "cue": "Correct, and I said so in questioning. But his alternative is also reasoning"
+        }
       ]
     }
   ],
