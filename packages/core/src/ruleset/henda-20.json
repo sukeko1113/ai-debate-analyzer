@@ -1,0 +1,228 @@
+{
+  "id": "henda-20",
+  "version": "2025-11-28",
+  "maxIssuesPerSide": 2,
+  "constructiveMaxWords": 600,
+  "maxWordsPerMinute": 150,
+  "graceSecAfterBell": 10,
+  "communicationPoints": { "min": 1, "max": 5, "integerOnly": true },
+  "tieBreak": "NEG",
+  "stages": [
+    {
+      "no": 1,
+      "type": "AFF_CONSTRUCTIVE",
+      "side": "AFF",
+      "durationSec": 240,
+      "prepAfterSec": 60,
+      "seat4": "A1",
+      "seat3": "A1",
+      "allowsNewIssue": true,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 2,
+      "type": "NEG_QUESTIONS",
+      "side": "NEG",
+      "durationSec": 120,
+      "prepAfterSec": 0,
+      "seat4": "N4",
+      "seat3": "N2",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 3,
+      "type": "NEG_CONSTRUCTIVE",
+      "side": "NEG",
+      "durationSec": 240,
+      "prepAfterSec": 60,
+      "seat4": "N1",
+      "seat3": "N1",
+      "allowsNewIssue": true,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 4,
+      "type": "AFF_QUESTIONS",
+      "side": "AFF",
+      "durationSec": 120,
+      "prepAfterSec": 120,
+      "seat4": "A4",
+      "seat3": "A2",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 5,
+      "type": "NEG_ATTACK",
+      "side": "NEG",
+      "durationSec": 180,
+      "prepAfterSec": 0,
+      "seat4": "N2",
+      "seat3": "N2",
+      "allowsNewIssue": false,
+      "allowsAttack": true,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 6,
+      "type": "AFF_QUESTIONS",
+      "side": "AFF",
+      "durationSec": 120,
+      "prepAfterSec": 0,
+      "seat4": "A3",
+      "seat3": "A3",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 7,
+      "type": "AFF_ATTACK",
+      "side": "AFF",
+      "durationSec": 180,
+      "prepAfterSec": 0,
+      "seat4": "A2",
+      "seat3": "A2",
+      "allowsNewIssue": false,
+      "allowsAttack": true,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 8,
+      "type": "NEG_QUESTIONS",
+      "side": "NEG",
+      "durationSec": 120,
+      "prepAfterSec": 120,
+      "seat4": "N3",
+      "seat3": "N3",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": false
+    },
+    {
+      "no": 9,
+      "type": "AFF_DEFENSE",
+      "side": "AFF",
+      "durationSec": 180,
+      "prepAfterSec": 0,
+      "seat4": "A3",
+      "seat3": "A3",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": true,
+      "allowsComparison": true
+    },
+    {
+      "no": 10,
+      "type": "NEG_DEFENSE",
+      "side": "NEG",
+      "durationSec": 180,
+      "prepAfterSec": 120,
+      "seat4": "N3",
+      "seat3": "N3",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": true,
+      "allowsComparison": true
+    },
+    {
+      "no": 11,
+      "type": "AFF_SUMMARY",
+      "side": "AFF",
+      "durationSec": 180,
+      "prepAfterSec": 0,
+      "seat4": "A4",
+      "seat3": "A1",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": true
+    },
+    {
+      "no": 12,
+      "type": "NEG_SUMMARY",
+      "side": "NEG",
+      "durationSec": 180,
+      "prepAfterSec": 0,
+      "seat4": "N4",
+      "seat3": "N1",
+      "allowsNewIssue": false,
+      "allowsAttack": false,
+      "allowsDefense": false,
+      "allowsComparison": true
+    }
+  ],
+  "chairCues": [
+    {
+      "kind": "stage_start",
+      "pattern": "Affirmative Constructive Speech",
+      "stageNo": [1],
+      "note": ""
+    },
+    {
+      "kind": "stage_start",
+      "pattern": "Questions from the Negative",
+      "stageNo": [2, 8],
+      "note": "文言が重複する。直前に確定したステージと経過時間の両方で判別する"
+    },
+    {
+      "kind": "stage_start",
+      "pattern": "Negative Constructive Speech",
+      "stageNo": [3],
+      "note": ""
+    },
+    {
+      "kind": "stage_start",
+      "pattern": "Questions from the Affirmative",
+      "stageNo": [4, 6],
+      "note": "文言が重複する。直前に確定したステージと経過時間の両方で判別する"
+    },
+    { "kind": "stage_start", "pattern": "Negative Attack Speech", "stageNo": [5], "note": "" },
+    { "kind": "stage_start", "pattern": "Affirmative Attack Speech", "stageNo": [7], "note": "" },
+    { "kind": "stage_start", "pattern": "Affirmative Defense Speech", "stageNo": [9], "note": "" },
+    { "kind": "stage_start", "pattern": "Negative Defense Speech", "stageNo": [10], "note": "" },
+    { "kind": "stage_start", "pattern": "Affirmative Summary Speech", "stageNo": [11], "note": "" },
+    {
+      "kind": "stage_start",
+      "pattern": "Negative Summary Speech",
+      "stageNo": [12],
+      "note": "最終スピーチ"
+    },
+    {
+      "kind": "prep",
+      "pattern": "preparation time",
+      "stageNo": [],
+      "note": "1分／2分は前後のステージで決まる（stages[].prepAfterSec）"
+    },
+    {
+      "kind": "speech_start",
+      "pattern": "Please say your name and start",
+      "stageNo": [],
+      "note": "計測開始点の手掛かり。条項 2.2.2（名乗りの直後から計測）"
+    },
+    {
+      "kind": "debate_end",
+      "pattern": "The debate is now over",
+      "stageNo": [],
+      "note": "以降は判定対象外"
+    }
+  ],
+  "evidenceRequirements": {
+    "factData": ["source", "year"],
+    "expert": ["name", "credential"],
+    "news": ["outlet", "date"]
+  }
+}

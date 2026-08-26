@@ -1,0 +1,49 @@
+{
+  "$id": "https://github.com/sukeko1113/ai-debate-analyzer/schemas/rule-flag.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "new_argument",
+        "extra_issue",
+        "over_time",
+        "over_word_limit",
+        "over_speech_rate",
+        "speaker_role_mismatch",
+        "evidence_incomplete",
+        "own_calculation",
+        "premature_rebuttal"
+      ]
+    },
+    "targetRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "confirmed",
+        "rejected"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "targetRef",
+    "rationale",
+    "status"
+  ]
+}

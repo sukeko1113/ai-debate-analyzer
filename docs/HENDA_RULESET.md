@@ -25,7 +25,15 @@ ruleset id: `henda-20` / version: 大会ルールの改定日（例 `2025-11-28`
 | 11 | `AFF_SUMMARY` | AFF | 3分 | 0 | 要約と比較（AD > DA） |
 | 12 | `NEG_SUMMARY` | NEG | 3分 | 0 | 要約と比較（DA ≧ AD） |
 
-スピーチ合計42分。準備時間とチェアパーソンのアナウンスも**別イベントとして保持する**（捨てない）。
+**スピーチ34分 ＋ 準備8分 ＝ 42分。**
+「スピーチ合計42分」と書くと準備時間を含むのか曖昧になるので、内訳で示す。
+準備時間の内訳は ①後1分 / ③後1分 / ④後2分 / ⑧後2分 / ⑩後2分。
+
+準備時間とチェアパーソンのアナウンスも**別イベントとして保持する**（捨てない）。
+
+この3つの数（34分・8分・42分）は `packages/core/src/ruleset/schema.ts` の
+`TOTAL_SPEECH_SEC` / `TOTAL_PREP_SEC` / `TOTAL_MATCH_SEC` と対応しており、
+どれか1つでも合わなければ ruleset の検証が落ちる。
 
 ---
 
@@ -97,12 +105,17 @@ ruleset id: `henda-20` / version: 大会ルールの改定日（例 `2025-11-28`
 
 ## 4. 立論の証明構造（条項 2.1.1 / 2.1.2）
 
-各Issueは3つのroleに分解して保存する。
+条項が定める**証明構造は3つ**である。
 
 | Issue | `present` | `effect` | `importance` |
 | --- | --- | --- | --- |
 | AFF Advantage | 現状分析 / inherency / necessity | Planのeffect / solvency / process | importance / significance / impact |
 | NEG Disadvantage | 現状分析 / uniqueness | Planからのeffect / link / process | importance / significance / impact |
+
+**保存する `role` は5値である。** 上の3つに `evidence`（主張を支える根拠と理由づけ）と、
+どれにも当たらない `other` を加える（`ARGUMENT_MODEL.md` §1）。
+`evidence` は「なぜそう言えるか」を述べた言明であり、それ自体が攻撃対象になるため、
+証明構造の3つとは別のノードとして持つ必要がある。
 
 AD・DAとも**各側最大2**。見かけ2つでも中身が3つ以上なら、主要な2つ以外は無視される。
 

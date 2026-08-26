@@ -133,7 +133,7 @@ export const UploadIntentRes = z.object({
   storagePath: z.string(),
   tusEndpoint: z.string().url(),                       // 直接ストレージホスト
   uploadToken: z.string(),
-  expiresAt: z.string().datetime(),
+  expiresAt: z.iso.datetime(),
 });
 
 export const RegisterMediaReq = z.object({
@@ -247,12 +247,12 @@ export const SetAudibilityReq = z.object({
 
 ```ts
 export const CreateNodeReq = z.object({
-  issueId: z.string().uuid().nullable(),
+  issueId: z.uuid().nullable(),
   kind: z.enum(['CLAIM','ATTACK','DEFENSE','QUESTION','ANSWER','SUMMARY_POINT']),
-  role: z.enum(['present','effect','importance','other']).nullable(),
+  role: ArgumentRole.nullable(),   // 5値。BASIC_DESIGN_v05 §13.2 / ARGUMENT_MODEL.md §1
   stageNo: z.number().int().min(1).max(12),
   text: z.string().min(1),
-  segmentIds: z.array(z.string().uuid()).min(1),   // ← 0件は 422 NODE_WITHOUT_SEGMENT
+  segmentIds: z.array(z.uuid()).min(1),   // ← 0件は 422 NODE_WITHOUT_SEGMENT
 });
 
 export const ReviewReq = z.object({
@@ -289,7 +289,7 @@ export const PutJudgeDecisionReq = z.object({
   winner: z.enum(['AFF','NEG']),                   // 引き分けを表現できない
   votingIssue: z.enum(['AD1','AD2','DA1','DA2']),
   assessments: z.array(z.object({
-    issueId: z.string().uuid(),
+    issueId: z.uuid(),
     probability: z.enum(['Hi','Lo']),
     value: z.enum(['Large','Small']),
     strength: z.enum(['Strong','Weak','None']),
@@ -303,7 +303,7 @@ export const PutJudgeDecisionReq = z.object({
 });
 
 export const LockRes = z.object({
-  lockedAt: z.string().datetime(),
+  lockedAt: z.iso.datetime(),
   citedSegmentCount: z.number().int(),
 });
 ```
@@ -353,7 +353,7 @@ export const CreateExportReq = z.object({
     'transcript','flow_sheet','judge_sheet_official','judge_sheet_extended',
     'decision_memo','commentary','audit_trail',
   ])).min(1),
-  judgeDecisionId: z.string().uuid(),   // locked 済みのもののみ
+  judgeDecisionId: z.uuid(),   // locked 済みのもののみ
 });
 ```
 
@@ -399,7 +399,7 @@ export const PurgeReq = z.object({
 // app/api/v1/segments/[id]/audibility/route.ts
 export const POST = defineHandler({
   auth: 'member',
-  params: z.object({ id: z.string().uuid() }),
+  params: z.object({ id: z.uuid() }),
   body: SetAudibilityReq,
   handler: async ({ params, body, actor, tx }) => {
     // tx: SET LOCAL app.actor_id 済みのトランザクション

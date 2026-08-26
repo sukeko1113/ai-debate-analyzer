@@ -6,6 +6,8 @@
   "description": "UI に依存しない中核ロジック（ruleset / schema / db / rules）",
   "exports": {
     "./env": "./src/env.ts",
+    "./ruleset": "./src/ruleset/index.ts",
+    "./schema": "./src/schema/index.ts",
     "./db": "./src/db/index.ts",
     "./db/schema": "./src/db/schema.ts"
   }
