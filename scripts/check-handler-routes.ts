@@ -8,7 +8,7 @@
  *
  * 使い方: npm run check-handler-routes
  */
-import { globSync, readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -24,7 +24,33 @@ const NON_HANDLER_EXPORTS = new Set([
   "generateStaticParams",
 ]);
 
-const files = globSync("app/api/**/route.ts", { cwd: process.cwd() }).sort();
+/**
+ * app/api 配下の route.ts を集める。
+ *
+ * `fs.globSync` を使わない。あれは Node 22 で入った API であり、
+ * package.json の engines は `>=20 <23` を許している。
+ * CI（Node 22）では通るのに Node 20 の手元でだけ
+ * `globSync is not a function` で落ちる、という形の壊れ方をする。
+ */
+function findRouteFiles(dir: string): string[] {
+  const found: string[] = [];
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return found; // ディレクトリが無い場合は 0 件。呼び出し側が空回りとして落とす
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...findRouteFiles(full));
+    else if (entry.name === "route.ts") found.push(full);
+  }
+  return found;
+}
+
+const files = findRouteFiles(path.join(process.cwd(), "app", "api")).map((f) =>
+  path.relative(process.cwd(), f),
+);
 
 if (files.length === 0) {
   console.error("app/api 配下に route.ts が 1 つもありません。検査が空回りしています。");

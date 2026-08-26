@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -9,7 +10,9 @@ import { defineConfig } from "vitest/config";
  */
 
 /** tsconfig.json の paths と同じ対応。app/api の route.ts が @core/* で import する */
-const alias = { "@core": path.resolve(import.meta.dirname, "packages/core/src") };
+// import.meta.dirname は Node 20.11 以降。engines は >=20 を許しているので使わない
+const here = path.dirname(fileURLToPath(import.meta.url));
+const alias = { "@core": path.resolve(here, "packages/core/src") };
 
 export default defineConfig({
   resolve: { alias },
