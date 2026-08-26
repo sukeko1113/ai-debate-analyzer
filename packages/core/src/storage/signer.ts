@@ -17,6 +17,8 @@
 export interface SignedUpload {
   /** バケット内のパス。`{match_id}/{sha256}.{ext}` */
   storagePath: string;
+  /** バケット名。TUS の metadata（bucketName）に要る */
+  bucket: string;
   /** TUS の宛先。`{直結ホスト}/storage/v1/upload/resumable` */
   tusEndpoint: string;
   /**

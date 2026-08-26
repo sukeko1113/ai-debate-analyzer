@@ -107,6 +107,12 @@ export const UploadIntentRes = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ready"),
     storagePath: z.string(),
+    /**
+     * バケット名。TUS の metadata（`bucketName`）に要る。
+     * 秘密ではない（署名トークンの適用範囲がこのバケットに閉じている）。
+     * クライアントが env から読めないため、ここで返す
+     */
+    bucket: z.string().min(1),
     /** 直結ホスト。`{ref}.supabase.co` ではなく `{ref}.storage.supabase.co` */
     tusEndpoint: z.url(),
     /** TUS の `x-signature` ヘッダに載せる。URL 内のトークンではない */

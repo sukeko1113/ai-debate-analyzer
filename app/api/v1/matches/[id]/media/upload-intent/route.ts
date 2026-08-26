@@ -88,6 +88,7 @@ export const POST = defineHandler({
     const data: UploadIntentRes = {
       status: "ready",
       storagePath: signed.storagePath,
+      bucket: signed.bucket,
       tusEndpoint: signed.tusEndpoint,
       uploadToken: signed.uploadToken,
       // サーバが選んだ期限ではない。発行時刻＋2時間である（API_SPEC.md §2.3）

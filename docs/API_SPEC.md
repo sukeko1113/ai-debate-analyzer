@@ -166,6 +166,7 @@ export const UploadIntentRes = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('ready'),
     storagePath: z.string(),
+    bucket: z.string(),                                // TUS の metadata に要る。秘密ではない
     tusEndpoint: z.string().url(),                     // 直接ストレージホスト
     uploadToken: z.string(),                           // x-signature ヘッダに載せる
     expiresAt: z.iso.datetime(),

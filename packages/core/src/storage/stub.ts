@@ -54,6 +54,7 @@ export class StubStorageSigner implements StorageSigner {
 
     return {
       storagePath,
+      bucket: this.bucket,
       tusEndpoint: `${this.storageUrl}${TUS_UPLOAD_PATH}`,
       uploadToken: token,
       expiresAt: expiresAtFrom(this.now(), SIGNED_UPLOAD_TTL_SECONDS),

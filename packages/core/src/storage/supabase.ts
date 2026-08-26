@@ -50,6 +50,7 @@ export class SupabaseStorageSigner implements StorageSigner {
 
     return {
       storagePath,
+      bucket: this.config.bucket,
       tusEndpoint: `${this.config.storageUrl.replace(/\/+$/, "")}${TUS_UPLOAD_PATH}`,
       uploadToken: data.token,
       // 有効期間は Supabase 側で 2 時間に固定されている。こちらでは選べない
