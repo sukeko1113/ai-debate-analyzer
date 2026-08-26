@@ -45,6 +45,14 @@ AIは候補を出すだけで、確定するのは人間。
 - **Issue key（AD1/AD2/DA1/DA2）とnode idはサーバが割り当てる。**
   AIに生成させない。生成させると重複と揺れが起き、履歴の同一性が壊れる。
 
+- **`effectiveness`（そのやりとりが効いたか）とHPバーは、判定に一切入らない。**
+  勝敗を決めるのは `judge_decisions` の Probability / Value / Strength だけ。
+  判定の集計コードから `effectiveness`・`comparison`・HPモジュールを参照しない。
+
+- **解析・観戦画面から `display_name` を参照しない。**
+  役割と座席ラベル（A1〜N4）を主表示にする。氏名を使ってよいのは、
+  試合登録画面と公式Judge Sheetの生成コードだけ。保持レベルCの匿名化が効かなくなる。
+
 - **HEnDA公式の判定語彙を数値へ置換しない。**
   `Hi/Lo`・`Large/Small`・`Strong/Weak/None` を0〜100点に変換しない。
   勝敗に引き分けは存在しない（`winner` は AFF か NEG の二択）。
@@ -144,6 +152,7 @@ AIは候補を出すだけで、確定するのは人間。
 | `docs/API_SPEC.md` | HTTP API契約。**セキュリティ境界そのもの** |
 | `docs/PRIVACY_RETENTION.md` | 保持レベルA〜Eと削除 |
 | `docs/REVIEW_SEMANTICS.md` | レビュー状態の4軸。壊してはならない規則 |
+| `docs/ARGUMENT_MODEL.md` | 議論の4構成要素、やりとりの効果、比較軸、HP、役割優先UI |
 | `docs/JUDGE_LOGIC.md` | Decision Chartとサーバ権威 |
 | `docs/ACCEPTANCE.md` | 受け入れ基準（機械検証／人間検証）と品質ゲート |
 | `docs/TASKS.md` | Phase A（P0〜P13・縦切り）／Phase B（P14〜P20）のPR分割と実行場所 |

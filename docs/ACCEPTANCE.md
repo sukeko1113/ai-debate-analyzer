@@ -45,11 +45,17 @@
 | **M19** | **楽観ロック** | `expectedVersion` の省略／不一致 | 省略は `400`、不一致は `409 VERSION_CONFLICT` |
 | **M20** | **保持と削除** | A→B→C→D の順序、`edit_logs` の伏せ字化 | 順序違反が拒否される。B削除後に本文が `edit_logs` にも残らない |
 | **M21** | **ノードの根拠** | `segmentIds` 0件でのノード作成 | API `422 NODE_WITHOUT_SEGMENT` ＋ DB遅延制約で失敗 |
+| **M22** | **effectiveness の分離** | 判定の集計コードが `effectiveness` / `comparison` を参照していない | 静的検査。参照があったら失敗 |
+| **M23** | **effectiveness の書き手** | ジョブ・解析経路から `effectiveness_human` を書こうとする | DBのCHECKで失敗する |
+| **M24** | **役割優先UI** | 解析・観戦画面のコンポーネントから `display_name` への参照 | 参照があったら失敗（登録画面と公式出力を除く） |
+| **M25** | **HPの隔離** | 判定の集計コードがHPモジュールを import している | import があったら失敗。逆方向（HP→判定）も検査 |
+| **M26** | **比較の根拠** | `source='debater'` の `ComparisonAxis` に `segmentIds` が空 | Zod検証で失敗 |
 
 ### 1.1 テストで手を抜かない
 
 - テストを削除して通す、`skip` する、閾値を緩めて通す、はしない。通らない理由を報告する。
-- M1・M15・M16・M18・M21 は **negative test**（「拒否されること」を確かめるテスト）である。
+- M1・M15・M16・M18・M21・M23・M26 は **negative test**（「拒否されること」を確かめるテスト）である。
+- M22・M24・M25 は **静的検査**（コードの依存関係を見る）である。実行時テストでは検出できない。
   正しいデータで通るだけのテストは、ルールを守れているかを検証していない。
 
 ---
@@ -150,3 +156,17 @@ M9のため、Gold Dataset から **ADとDAを入れ替えた反転版 `gold-01-
 
 Phase Aでは **AD1 と DA1 だけ**を使う。AD2 / DA2 と RuleFlag の正解データは
 Gold Datasetに含めておくが、検証はPhase B（P14 / P15）で行う。
+
+### 4.4 v05で追加する正解データ
+
+Gold Dataset に次を含める。すでに原稿を書いていれば、追記で足りる。
+
+| 追加 | 内容 |
+| --- | --- |
+| 4構成要素のラベル | 各 Claim が `present` / `effect` / `importance` / `evidence` のどれか |
+| Attack の対象と種別 | どの `role` を `effect_kind` 何で攻撃したか |
+| 正解 `effectiveness` | 各やりとりが `strong` / `partial` / `none` のどれか（AI候補との一致率を測る） |
+| Summary の比較軸 | `magnitude` / `probability` / `timeframe` / `value` のどれを使い、どちらに有利としたか |
+
+`effectiveness` の正解は、AIの候補精度を測るためだけに使う。
+**判定の正解データではない**（判定の正解は Judge Sheet 側にある）。

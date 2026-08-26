@@ -24,6 +24,8 @@ Phase A（縦切り）: 合成試合 → 音声取込 → ステージ確定 →
                   ─[G0 縦切り貫通]─>
 Phase B（拡張）  : AD2/DA2・全relation → RuleFlag 9種 → Communication
                   → 6成果物すべて → whosaid import → 保持・削除 → 監査
+                  ─[許諾・権利の確認]─>
+Phase C（参照DB）: 熟練ジャッジ解説の構造化
 ```
 
 **Phase Aの間は、AD1とDA1だけを扱う。** AD2/DA2、RuleFlag、6成果物、whosaid import は
@@ -51,6 +53,7 @@ Phase B（拡張）  : AD2/DA2・全relation → RuleFlag 9種 → Communication
 | **P5・P8** | **デスクトップ / CI**（実キー） |
 | **★G0** | **デスクトップ**（全工程を人が通す） |
 | P14〜P20 | 原則 Web（P17・P19に人の確認あり） |
+| P21（Phase C） | Web で実装 → デスクトップで素材の取り込み |
 
 ---
 
@@ -134,7 +137,7 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 
 **実行場所**: **Web**
 
-**読むもの**: `HENDA_RULESET.md`, `BASIC_DESIGN_v04.md` 第13章
+**読むもの**: `HENDA_RULESET.md`, `ARGUMENT_MODEL.md` §1・§2・§5, `BASIC_DESIGN_v05.md` 第13章
 
 - `packages/core/src/ruleset/` に `henda-20`（12ステージ・担当者表・時間・定型句辞書・証拠要件）
 - Zodで `Ruleset` / `Issue` / `ArgumentNode` / `FlowLink` / `JudgeRun` / `JudgeDecision`
@@ -146,6 +149,9 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 - `schemas/` の再生成で差分ゼロ
 - `winner` に引き分けを入れると型エラー
 - `commPoints` に 0 / 0.5 / 6 を入れるとバリデーションエラー
+- **`ArgumentNode.role` が4構成要素（`present`/`effect`/`importance`/`evidence`/`other`）になっている**
+- **`effect_kind` の語彙が `ARGUMENT_MODEL.md` §2 と一致している**
+- **`ComparisonAxis` で、`source='debater'` かつ `segmentIds` が空だと失敗する**（M26）
 
 **やってはいけないこと**
 - 大会ルールの本文をコードに埋め込む（条項番号と要約で参照する）
@@ -368,6 +374,10 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 - **LLMの応答スキーマに `id` / `label` / `reviewStatus` が含まれていない**
 - relationの方向違反（`ATTACK → ATTACK` など）が `422` で拒否される
 - `reviewStatus` を書けるのが `/review` エンドポイントだけである
+- **`effectiveness_human` をジョブ・解析経路から書けない**（DBのCHECKで担保・M23）
+- **`effectiveness` の人の入力が任意である**（未入力でも先へ進める）
+- **解析画面のコンポーネントが `display_name` を参照していない**（M24）
+- `debate_evolution` が、fixtureに対して期待どおりの時系列を返す
 
 ---
 
@@ -390,6 +400,7 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 - `judge_decisions` が `judge_runs` を上書きしない
 - **AFF/NEGを入れ替えた入力で判定が対称に反転する**（`gold-01-mirror`）
 - Best Debater の候補をAIが出していない
+- **判定の集計コードが `effectiveness` / `comparison` を参照していない**（静的検査・M22）
 
 **人の確認待ち（H5）**: HEnDA経験者2名の承認 → **G6**
 
@@ -488,6 +499,27 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 
 ---
 
+## P17.5 HP View（学習/観戦用）
+
+**実行場所**: **Web**
+
+**読むもの**: `ARGUMENT_MODEL.md` §7
+
+- `debate_evolution` の `effectiveness` から AD1/AD2/DA1/DA2 のバーを描く
+- 4構成要素ごとの状態（残っている／弱化→一部回復／Strong など）を併記
+
+**受け入れ基準**
+- **画面に常に「AI推定」と表示される**
+- **判定の集計コードがHPモジュールを import していない**（静的検査・M25）
+- **HPから判定を計算する経路が存在しない**（逆方向も検査）
+- 音声・判定を削除した試合でも、残っているデータの範囲で描画が壊れない
+
+**やってはいけないこと**
+- 確定した判定からHPを計算する
+- HPを公式の得点のように見せる
+
+---
+
 ## P18 whosaid-editor インポート
 
 **実行場所**: **Web**
@@ -534,6 +566,39 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 
 ---
 
+# Phase C — 熟練ジャッジ参照DB
+
+## P21 参照DBの基盤
+
+**実行場所**: Web で実装 → **デスクトップで素材の取り込み**
+
+**読むもの**: `ARGUMENT_MODEL.md` §8, `PRIVACY_RETENTION.md`
+
+**着手前に満たすべき前提**（これが揃うまで実装しない）
+
+1. 大会映像・音声の権利者の確認（主催者・学校・出場者）
+2. 解説している熟練ジャッジ本人の許諾（コメントは個人情報であり著作物）
+3. **参照データとして使うことへの明示的な同意。**
+   通常の録画許諾に「AIの参照データにする」は含まれない
+4. `consent_scope` に `expert_reference` を追加し、保持期限を決めておく
+
+**内容**
+- 熟練者コメントの文字起こしと、タイムコード・Flowへの結び付け
+- Turning Point / Issue Evaluation / Attack-Defense評価 / Comparison / New Argument判断 / Advice
+
+**受け入れ基準**
+- `consent_scope = 'expert_reference'` の試合以外を取り込もうとすると拒否される
+- 熟練者コメントが `judge_decisions` を上書きしない（**参照例であって正解ではない**）
+- **複数ジャッジで見解が分かれた場合、その差が保存される**
+- Advice が判定理由とは別枠に入る
+
+**やってはいけないこと**
+- 熟練者の判定を「正解」として Winner一致率の最適化に使う
+  （`ACCEPTANCE.md` §3.1。**Phase C でこそ効く規則**）
+- 通常の録画許諾しかない試合を取り込む
+
+---
+
 ## 順序とゲート
 
 ```
@@ -543,7 +608,10 @@ P-1 ─> P0 ─> P1 ─> P2 ─> P3 ─[G1]─> P4 ─> P5 ─> P6 ─> P7 ─[G
     └─> P10 ─> P11 ─> P12 ─[G6]─> P13 ─[G7a]─> ★G0 縦切り貫通 ──> Phase B
                                                                     │
     ┌───────────────────────────────────────────────────────────────┘
-    └─> P14 ─[G5]─> P15 ─> P16 ─> P17 ─> P18 ─> P19 ─> P20 ─[G7]─> v1.0
+    └─> P14 ─[G5]─> P15 ─> P16 ─> P17 ─> P17.5 ─> P18 ─> P19 ─> P20 ─[G7]─> v1.0
+                                                                        │
+                                              ┌─────────────────────────┘
+                                              └─> [許諾・権利の確認] ─> P21（Phase C）
 ```
 
 ゲートの内容は `ACCEPTANCE.md` §3。

@@ -234,6 +234,13 @@ UNIQUE(`match_id`, `label`)
 `id`（**サーバ割当**）, `match_id`, `issue_id`(null可), `kind`, `role`,
 `stage_no`, `text`, `review_status`, `lock_version`
 
+`role` は議論の4構成要素（v05で確定）:
+`present` / `effect` / `importance` / `evidence` / `other`
+
+`role='evidence'`（「なぜそう言えるか」の言明・**攻撃対象になる**）と
+`evidence_refs`（引用の記録・出典要件の充足判定に使う）は別物。
+詳細は `ARGUMENT_MODEL.md` §1。
+
 ### `node_segments`
 `node_id`, `segment_id`。PK(`node_id`, `segment_id`)
 
@@ -245,9 +252,41 @@ API側で必須にし、DB側は遅延制約トリガ（`CONSTRAINT TRIGGER ... 
 `cited_elements` jsonb, `completeness`, `segment_id`
 
 ### `flow_links`
-`id`, `match_id`, `from_node`, `to_node`, `relation`, `confidence`, `review_status`, `lock_version`
+| 列 | 内容 |
+| --- | --- |
+| `id`, `match_id` | |
+| `from_node`, `to_node` | uuid FK |
+| `relation` | `ATTACKS` / `DEFENDS` / `EXTENDS` / `COMPARES` / `QUESTIONS` / `ANSWERS` / `CITES` / `DROPS` |
+| `confidence` | real |
+| `review_status` | **そのリンクが存在するか**（`suggested`/`reviewed`/`confirmed`/`excluded`） |
+| **`effect_kind`** | やりとりの種別（`no_link` / `re_evidence` 等。`ARGUMENT_MODEL.md` §2） |
+| **`rationale_ai`** | AIの説明文 |
+| **`effectiveness_ai`** | `strong` / `partial` / `none`。**AIのみ** |
+| **`effectiveness_human`** | 同上・null可。**人のみ・任意入力** |
+| **`effectiveness_set_by`** | uuid。人が入れたときだけ埋まる |
+| **`comparison`** | jsonb。`relation='COMPARES'` のときのみ。`ComparisonAxis[]`（`ARGUMENT_MODEL.md` §5） |
+| `lock_version` | |
 
 relationごとに許される from/to の kind をトリガで検証する（`JUDGE_LOGIC.md` §4）。
+
+```sql
+CHECK (effectiveness_ai IS NULL OR effectiveness_set_by IS NULL
+       OR effectiveness_human IS NOT NULL)
+CHECK (effectiveness_human IS NULL OR effectiveness_set_by IS NOT NULL)
+CHECK (comparison IS NULL OR relation = 'COMPARES')
+```
+
+> **`effectiveness` は判定に入らない。** 勝敗を決めるのは
+> `judge_decisions` の Probability / Value / Strength だけである。
+> 集計コードが `effectiveness` を参照していないことをCIで静的に検査する。
+
+### `debate_evolution`（ビュー・v05で追加）
+
+「AD1が試合中にどう変化したか」は**新テーブルを作らず導出する**。
+`stage_no` の順序と `flow_links` から再構成できる。定義は `ARGUMENT_MODEL.md` §4。
+
+新テーブルを作ると `flow_links` とログの二重管理になり、
+片方だけ更新される事故が起きる。
 
 ### `rule_flags`（Phase B）
 `id`, `match_id`, `type`, `target_ref`, `rationale`,

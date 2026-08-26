@@ -114,6 +114,9 @@ for (const [i, d] of drafts.entries()) {
 | `CITES` | 証拠を参照する | 任意 | `evidence_refs` |
 | `DROPS` | 反論も応答もされないまま残った | システム導出 | `CLAIM` / `ATTACK` |
 
+各リンクは、**何をしたのか**（`effect_kind`）と**効いたのか**（`effectiveness`）も持つ。
+種別の語彙と、効果評価が判定に入らない理由は `ARGUMENT_MODEL.md` §2〜§3。
+
 **方向違反はDBのCHECKまたはAPIバリデーションで弾く。**
 `ATTACK → ATTACK`（アタックへのアタック）は原則存在しない。
 それらしいリンクが出たら、Defense の取り違えを疑う。
@@ -201,7 +204,24 @@ for (const [i, d] of drafts.entries()) {
 
 ---
 
-## 9. 出力する2種類のJudge Sheet
+## 9. 判定に入るもの・入らないもの（v05で明示）
+
+| | 判定に入るか |
+| --- | --- |
+| `judge_decisions` の Probability / Value / Strength | **入る**（これだけが判定） |
+| `issues` / `argument_nodes` / `flow_links` の `confirmed` | 入る（判定の材料） |
+| `rule_flags` の `confirmed` | 入る（除外の根拠） |
+| **`flow_links.effectiveness`** | **入らない**（説明のため） |
+| **`comparison` の4軸** | **入らない**（説明のため。Voting Issue の根拠にはなる） |
+| **HP バー** | **入らない**（学習・観戦用のAI推定） |
+| **熟練ジャッジ参照DB** | **入らない**（参照例であって正解ではない） |
+
+下4つは、判定の集計コードから参照してはならない。CIで静的に検査する。
+詳細は `ARGUMENT_MODEL.md`。
+
+---
+
+## 10. 出力する2種類のJudge Sheet
 
 | 版 | 内容 | 用途 |
 | --- | --- | --- |
