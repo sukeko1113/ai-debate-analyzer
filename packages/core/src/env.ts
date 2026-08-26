@@ -43,6 +43,12 @@ export const envSchema = z.object({
 
   // --- Supabase（Storage と Auth 専用。DB には使わない） ---
   NEXT_PUBLIC_SUPABASE_URL: z.url().optional(),
+  /**
+   * JWT の検証鍵（API_SPEC.md §0.2）。HS256 の legacy JWT secret。
+   * 未設定のときに検証を飛ばす分岐は作らない。設定エラーとして落とす
+   * （packages/core/src/auth/jwt.ts）。
+   */
+  SUPABASE_JWT_SECRET: z.string().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 

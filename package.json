@@ -29,7 +29,8 @@
     "generate-schemas": "tsx scripts/generate-schemas.ts",
     "check-no-real-data": "tsx scripts/check-no-real-data.ts",
     "check-setup-script": "tsx scripts/check-setup-script.ts",
-    "check-dev-routes": "tsx scripts/check-dev-routes.ts"
+    "check-dev-routes": "tsx scripts/check-dev-routes.ts",
+    "check-handler-routes": "tsx scripts/check-handler-routes.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

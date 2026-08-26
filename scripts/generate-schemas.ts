@@ -24,6 +24,13 @@ import {
   RuleFlag,
 } from "../packages/core/src/schema/flow";
 import { JudgeDecision, JudgeRun } from "../packages/core/src/schema/judge";
+import {
+  ConsentReq,
+  CreateMatchReq,
+  Match,
+  PatchMatchReq,
+  PutMembersReq,
+} from "../packages/core/src/schema/match";
 
 interface Entry {
   /** 出力ファイル名（schemas/ 配下） */
@@ -55,6 +62,24 @@ const REGISTRY: Entry[] = [
     file: "judge-decision.schema.json",
     schema: JudgeDecision,
     id: `${ID_BASE}/judge-decision.schema.json`,
+  },
+  { file: "match.schema.json", schema: Match, id: `${ID_BASE}/match.schema.json` },
+  // リクエスト側。io: "input" なので、これが「クライアントが送ってよい形」になる
+  {
+    file: "create-match-req.schema.json",
+    schema: CreateMatchReq,
+    id: `${ID_BASE}/create-match-req.schema.json`,
+  },
+  {
+    file: "patch-match-req.schema.json",
+    schema: PatchMatchReq,
+    id: `${ID_BASE}/patch-match-req.schema.json`,
+  },
+  { file: "consent-req.schema.json", schema: ConsentReq, id: `${ID_BASE}/consent-req.schema.json` },
+  {
+    file: "put-members-req.schema.json",
+    schema: PutMembersReq,
+    id: `${ID_BASE}/put-members-req.schema.json`,
   },
 ];
 

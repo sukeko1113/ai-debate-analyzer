@@ -117,3 +117,16 @@ export async function assertTenantIsolation(sql: Sql, table: string): Promise<vo
     );
   }
 }
+
+/**
+ * P2 の表を空にする。
+ *
+ * 所有者（app_migrator）は FORCE ROW LEVEL SECURITY のためポリシー越しには読めないが、
+ * TRUNCATE は行レベルの操作ではないので所有者の権限で通る。
+ * テスト間の後始末専用であり、アプリの経路では使わない。
+ */
+export async function truncateMatchTables(sql: Sql): Promise<void> {
+  await sql.unsafe(
+    `TRUNCATE TABLE edit_logs, match_members, match_access, matches, api_idempotency_keys CASCADE`,
+  );
+}

@@ -39,6 +39,9 @@ jobs:
       - name: セットアップスクリプトの版ずれ検査
         run: npm run check-setup-script
 
+      - name: 素の route.ts が無いこと（API_SPEC.md §11）
+        run: npm run check-handler-routes
+
       - run: npm run typecheck
 
       - run: npm run lint
@@ -96,6 +99,8 @@ jobs:
       DIRECT_URL: postgres://app_migrator:ci-app@127.0.0.1:5432/debate_ci
       # アプリは app_server（NOSUPERUSER / NOBYPASSRLS）。所有者と分けないと RLS を検証できない
       DATABASE_URL: postgres://app_server:ci-app@127.0.0.1:5432/debate_ci
+      # API テストが JWT を組み立てるために使う。CI 内だけの値であり、実 Supabase の鍵ではない
+      SUPABASE_JWT_SECRET: ci-only-jwt-secret
 
     steps:
       - uses: actions/checkout@v4
@@ -118,8 +123,11 @@ jobs:
       - name: マイグレーション
         run: npm run db:migrate
 
-      - name: RLS テスト（所有者で接続すると空回りすることの確認を含む）
+      - name: RLS・API テスト（所有者で接続すると空回りすることの確認を含む）
         run: npm run test:db
+
+      - name: マイグレーションが冪等であること（二度流しても壊れない）
+        run: npm run db:migrate
 
   e2e:
     name: Playwright（メディア再生位置）
