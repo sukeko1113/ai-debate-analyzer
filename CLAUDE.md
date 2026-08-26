@@ -156,4 +156,5 @@ AIは候補を出すだけで、確定するのは人間。
 | `docs/JUDGE_LOGIC.md` | Decision Chartとサーバ権威 |
 | `docs/ACCEPTANCE.md` | 受け入れ基準（機械検証／人間検証）と品質ゲート |
 | `docs/TASKS.md` | Phase A（P0〜P13・縦切り）／Phase B（P14〜P20）のPR分割と実行場所 |
+| `docs/HANDOFF.md` | **PR間の申し送り。着手前に読み、完了時に追記する** |
 | `docs/DEV_ENVIRONMENTS.md` | Web版とデスクトップ版の使い分け、クラウド環境の設定 |
