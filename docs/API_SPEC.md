@@ -41,10 +41,31 @@
 
 ### 0.4 冪等性（Idempotency-Key）
 
-ジョブ作成・エクスポート作成など、副作用のあるPOSTは `Idempotency-Key` ヘッダを必須とする。
+`Idempotency-Key` ヘッダを要求するのは、次の**いずれか**に当たる POST である。
+
+1. **一意制約で二重作成を防げないもの。**
+   例: `POST /matches`。`matches` に一意制約がないため、同じ試合を二度作れてしまう。
+   画面Aの二重送信で試合が二つできるのは、実際に起きる事故である。
+2. **外部への副作用を伴うもの。**
+   例: ジョブ作成、エクスポート作成。DBの一意キーがあっても、HTTP層で先に止める価値がある。
+   外部 provider を叩くため、行の一意性だけでは再送を吸収しきれないためである。
+   ここでいう外部への副作用とは、**外部に状態を作る、または課金・実行が走るもの**を指す。
+   読み取りや短命トークンの発行は含まない。
+
+**この二つの観点で判定する。「例外かどうか」で判断しない。**
+基準を観点として置くのは、エンドポイントが増えるたびに同じ議論をやり直さないためである。
 
 - 同じキーで再送された場合、**新規作成せず既存の結果を返す**（200）。
-- ジョブの冪等キーはこれとは別に、DB側でも `match_id + kind + target_stage_no + params_hash` で担保する（`TRANSCRIPTION.md` §6.2）。
+  作成時が 201 でも再送は 200 で、`Idempotent-Replay: true` ヘッダを付ける。
+- 同じキーで内容が違えば 400。
+- ジョブの冪等キーはこれとは別に、DB側でも `match_id + kind + target_stage_no + params_hash` で担保する（`TRANSCRIPTION.md` §6.2）。ジョブは観点2に当たるので、**両方**を持つ。
+- 記録先は `api_idempotency_keys`（`DATA_MODEL.md` §2）。記録と再送判定は、
+  ハンドラ本体と同じトランザクション内で行う。外に出すと、記録の直前に落ちたときに二重実行できてしまう。
+
+**Media の3本はいずれの観点にも当たらないため、対象外である**（§2）。
+`source_sha256` の UNIQUE 制約が二重登録を構造的に防ぐ（観点1に当たらない）。
+`upload-intent` は短命トークンを払い出すだけで、外部に状態を作らない（観点2に当たらない）。
+二つの冪等機構が同じことを守ると、片方が壊れたときに気づけない。
 
 ### 0.5 エラーコード
 
@@ -75,11 +96,11 @@
 
 | method | path | 認可 | 備考 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/matches` | 認証済み | 作成者がownerになる |
-| `GET` | `/api/v1/matches/{id}` | member | |
-| `PATCH` | `/api/v1/matches/{id}` | member | `expectedVersion` 必須 |
-| `POST` | `/api/v1/matches/{id}/consent` | owner | 許諾の記録 |
-| `PUT` | `/api/v1/matches/{id}/members` | member | 一括置換 |
+| `POST` | `/api/v1/matches` | `authenticated` | 作成者がownerになる。`Idempotency-Key` 必須（§0.4 観点1） |
+| `GET` | `/api/v1/matches/{id}` | `match:read` | |
+| `PATCH` | `/api/v1/matches/{id}` | `match:write` | `expectedVersion` 必須 |
+| `POST` | `/api/v1/matches/{id}/consent` | `match:owner` | 許諾の記録 |
+| `PUT` | `/api/v1/matches/{id}/members` | `match:write` | 一括置換 |
 
 ```ts
 export const CreateMatchReq = z.object({
@@ -93,6 +114,8 @@ export const CreateMatchReq = z.object({
 });
 
 export const ConsentReq = z.object({
+  // 許諾の記録は matches の更新である。§0.3 のとおり expectedVersion を要求する
+  expectedVersion: z.number().int(),
   scope: z.enum(['practice_only', 'training_material', 'research', 'public']),
   obtainedFrom: z.array(z.enum(['student', 'guardian', 'school', 'organizer'])).min(1),
   expiresOn: z.string().date().nullable(),
@@ -117,38 +140,103 @@ export const PutMembersReq = z.object({
 
 ## 2. Media
 
-| method | path | 備考 |
-| --- | --- | --- |
-| `POST` | `/api/v1/matches/{id}/media/upload-intent` | TUSのアップロード先と保存パスを払い出す |
-| `POST` | `/api/v1/matches/{id}/media` | アップロード完了後の登録 |
-| `GET` | `/api/v1/media/{id}/playback-url` | 短命の署名URL（既定15分） |
+| method | path | 認可 | 備考 |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/matches/{id}/media/upload-intent` | `match:write` | 保存パスと署名トークンを払い出す |
+| `POST` | `/api/v1/matches/{id}/media` | `match:write` | アップロード完了後の登録 |
+| `GET` | `/api/v1/media/{id}/playback-url` | `match:read` | 短命の署名URL（既定15分） |
+
+**`Idempotency-Key` は3本とも要求しない**（§0.4）。
+
+`playback-url` は `params.id` が match id ではないため、`defineHandler` に
+`matchIdFrom` を渡す（§11）。渡し忘れると「match id を特定できません」の 500 になる。
 
 ```ts
+export const MediaMime = z.enum(['audio/mpeg','audio/mp4','audio/wav','audio/x-m4a']);
+
 export const UploadIntentReq = z.object({
-  filename: z.string(),
-  byteSize: z.number().int().max(50 * 1024 * 1024),   // 入力規約：50MB以下
-  mime: z.enum(['audio/mpeg','audio/mp4','audio/wav','audio/x-m4a']),
+  filename: z.string(),                                // 表示用。保存パスには使わない
+  byteSize: z.number().int().max(50 * 1024 * 1024),    // 入力規約：50MB以下
+  mime: MediaMime,
+  sourceSha256: z.string().length(64),                 // クライアントが先に全体を読んで計算する
 });
-export const UploadIntentRes = z.object({
-  storagePath: z.string(),
-  tusEndpoint: z.string().url(),                       // 直接ストレージホスト
-  uploadToken: z.string(),
-  expiresAt: z.iso.datetime(),
-});
+
+// 判別可能なユニオン。呼び出し側に status での分岐を強制する
+export const UploadIntentRes = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('ready'),
+    storagePath: z.string(),
+    tusEndpoint: z.string().url(),                     // 直接ストレージホスト
+    uploadToken: z.string(),                           // x-signature ヘッダに載せる
+    expiresAt: z.iso.datetime(),
+  }),
+  z.object({
+    status: z.literal('already_exists'),
+    mediaSourceId: z.uuid(),
+  }),
+]);
 
 export const RegisterMediaReq = z.object({
   storagePath: z.string(),
   sourceSha256: z.string().length(64),
   durationMs: z.number().int().positive(),
-  mime: z.string(),
+  mime: MediaMime,                                     // intent と同じ enum。何でも通る口を作らない
   bitrate: z.number().int().nullable(),
   channels: z.number().int().nullable(),
   origin: z.enum(['upload','extracted_in_browser','imported']),
 });
+
+export const RegisterMediaRes = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('created'),        mediaSourceId: z.uuid() }),  // 201
+  z.object({ status: z.literal('restored'),       mediaSourceId: z.uuid() }),  // 200
+  z.object({ status: z.literal('already_exists'), mediaSourceId: z.uuid() }),  // 200
+]);
 ```
+
+### 2.1 保存パスはサーバが決める
+
+`storagePath` は `{match_id}/{sha256}.{ext}`（バケットは `media`。`TRANSCRIPTION.md` §7）。
+
+- `ext` は **mime から決める**。`filename` は申告値なので保存パスに混ぜない。
+  `audio/mpeg → mp3` / `audio/wav → wav` / `audio/mp4 → m4a` / `audio/x-m4a → m4a`。
+  拡張子はパスの一部にすぎず、内容の判定には使わない。
+- したがって `sourceSha256` を intent の時点で受け取る必要がある。
+  クライアントが先にファイル全体を読んで計算する（Web Crypto）。
+- 一時パスを払い出して後から改名する案は採らない。
+  Storage の改名は追加の権限と操作が要り、失敗時に孤児ファイルが残る。
+
+### 2.2 三通りの結果（新規 / 既存 / purge後の再利用）
+
+`media_sources` は `UNIQUE(match_id, source_sha256)` を持つ（`DATA_MODEL.md` §3）。
+**重複はエラーではない。** 同じ音声を二度登録しようとしただけである。
+
+| 状態 | `upload-intent` | `POST /media` |
+| --- | --- | --- |
+| 未登録 | `ready`（`upsert: false` で署名） | `created`（201） |
+| 登録済み・`purged_at` が null | `already_exists` | `already_exists`（200） |
+| 登録済み・`purged_at` あり（A削除後） | `ready`（`upsert: true` で署名） | `restored`（200） |
+
+- **`upsert` はクライアントから受け取らない。** サーバが `purged_at` の有無で決める。
+  署名トークンは発行時に `upsert` が焼き込まれるため、後から選ばせる余地がない。
+  クライアントに上書きの可否を選ばせない、という意図でもある。
+- **`POST /media` は INSERT の UNIQUE 違反（23505）を捕まえて SELECT し直す。**
+  先に SELECT してから INSERT する形は、並行実行の競合を防げない。
+- `restored` を `already_exists` と分けているのは、「一度消して入れ直した」ことが
+  応答から分かるようにするためである。呼び出し側が `retention_events` を引かずに気づける。
+
+### 2.3 `expiresAt` はサーバが選んだ期限ではない
+
+Supabase の署名アップロードトークンは**有効期間が2時間に固定**されており、
+期限を指定する引数がない。`expiresAt` は「**発行時刻＋2時間**」を返しているだけである。
+
+`playback-url` の既定15分とは別物である。将来 Supabase が期限指定に対応しても、
+**こちらが15分や2時間を選んだのではない**ことが分かるよう、ここに書いておく。
+
+### 2.4 その他
 
 - **ファイル本体はAPIを通らない。** ブラウザ → Supabase Storage（TUS）へ直接送る。
 - `playback-url` の応答をDBに保存しない。毎回発行する。
+- `mime` は申告値であり、内容の検証は行わない（`TRANSCRIPTION.md` §7）。
 
 ---
 
@@ -156,10 +244,10 @@ export const RegisterMediaReq = z.object({
 
 | method | path | 認可 | 備考 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/matches/{id}/jobs` | member | `Idempotency-Key` 必須 |
-| `GET` | `/api/v1/matches/{id}/jobs` | member | ポーリング用 |
-| `POST` | `/api/v1/jobs/{id}/retry` | member | `failed` のみ |
-| `POST` | `/api/v1/jobs/{id}/cancel` | member | `queued` / `running` |
+| `POST` | `/api/v1/matches/{id}/jobs` | `match:write` | `Idempotency-Key` 必須（§0.4 観点2） |
+| `GET` | `/api/v1/matches/{id}/jobs` | `match:read` | ポーリング用 |
+| `POST` | `/api/v1/jobs/{id}/retry` | `match:write` | `failed` のみ。`matchIdFrom` が要る |
+| `POST` | `/api/v1/jobs/{id}/cancel` | `match:write` | `queued` / `running`。`matchIdFrom` が要る |
 | `POST` | `/api/v1/internal/jobs/run` | `X-Job-Secret` | Vercel Cron / ポーラーから |
 
 ```ts
@@ -395,23 +483,66 @@ export const PurgeReq = z.object({
 
 全エンドポイントを同じ形で書く。例外を作らない。
 
+**ここに載せるのは、実際に出荷しているコードである。** 架空のコードを書かない。
+書き方の見本が動いていないと、次の実装者が見本のとおりに書いて壊れる。
+
+### 11.1 基本形（`app/api/v1/matches/[id]/consent/route.ts` より）
+
 ```ts
-// app/api/v1/segments/[id]/audibility/route.ts
+import { z } from "zod";
+import { defineHandler } from "@core/http";
+import { ConsentReq } from "@core/schema";
+import { requireMatch } from "@core/db/repo/matches";
+import { updateWithVersion } from "@core/db/optimistic";
+
+export const runtime = "nodejs";
+
 export const POST = defineHandler({
-  auth: 'member',
+  auth: "match:owner",
   params: z.object({ id: z.uuid() }),
-  body: SetAudibilityReq,
-  handler: async ({ params, body, actor, tx }) => {
-    // tx: SET LOCAL app.actor_id 済みのトランザクション
-    const seg = await tx.segments.lockForUpdate(params.id, body.expectedVersion);
-    await tx.segments.setAudibility(seg.id, body.audibility, actor.id);
-    await tx.editLogs.append({ entity: 'transcript_segments', ... });
-    return { data: { id: seg.id, version: seg.lockVersion + 1 } };
+  body: ConsentReq,
+  requireExpectedVersion: true,
+  handler: async ({ params, body, tx, audit }) => {
+    const before = await requireMatch(tx, params.id);
+
+    const after = await updateWithVersion<{ lock_version: number; consent_recorded_at: Date }>(tx, {
+      table: "matches",
+      id: params.id,
+      expectedVersion: body.expectedVersion,
+      set: {
+        consent_scope: body.scope,
+        consent_obtained_from: body.obtainedFrom,
+        consent_expires_on: body.expiresOn,
+        // 記録した時刻はサーバが決める。クライアントから受け取らない
+        consent_recorded_at: new Date(),
+      },
+    });
+
+    audit.record({
+      entity: "matches",
+      entityId: params.id,
+      matchId: params.id,
+      before: { consentScope: before.consentScope, consentRecordedAt: before.consentRecordedAt },
+      after: { consentScope: body.scope, consentRecordedAt: after.consent_recorded_at.toISOString() },
+    });
+
+    return { data: { id: params.id, version: after.lock_version }, status: 200 };
   },
 });
 ```
 
-`defineHandler` が担保すること:
+押さえる点。
+
+- `auth` は `AuthMode` の語彙（`authenticated` / `match:read` / `match:write` / `match:owner`）。
+  `member` / `owner` という語は使わない。`viewer` は `match:write` を通らない。
+- **更新系は `updateWithVersion()` を使う。** 条件付きUPDATEが0行のとき、
+  RLSで見えていないのか版がずれているのかを切り分け、それぞれ `404` と
+  `409 VERSION_CONFLICT`（`details.currentVersion` 付き）にする。route ごとに書くと必ず片方を忘れる。
+- **`audit.record()` を呼ばない変更系ハンドラは 500 で落ちる。** 警告ではなく例外である。
+  警告にすると、記録の無い変更がいつか必ず本番へ出る。
+- 他人の match は 403 ではなく **404** を返す。403 だと存在が漏れる。
+
+### 11.2 `defineHandler` が担保すること
 1. JWT検証 → `actor`
 2. トランザクション開始 → `SET LOCAL app.actor_id`
 3. Zod検証（`params` / `body`）→ 失敗は `400 VALIDATION_FAILED`

@@ -187,28 +187,43 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 
 ## P3 メディア取り込み
 
-**実行場所**: Web で実装 → **デスクトップで G1**
+**実行場所**: Web で実装 → **デスクトップ／実 Supabase で G1**
 
 **読むもの**: `TRANSCRIPTION.md` §7, `API_SPEC.md` §2, `DATA_MODEL.md` §3
 
-- TUS resumable upload（6MB超）。直接ストレージホスト
-- Web CryptoでSHA-256をストリーミング計算
+- **TUS resumable upload（大きさによらず常に）**。直接ストレージホスト（`TRANSCRIPTION.md` §7.3）
+- Web CryptoでSHA-256を計算し、**intent の前に**サーバへ渡す（保存パスに sha256 が要るため）
 - `POST /media/upload-intent` → ブラウザから直接アップロード → `POST /media` で登録
 - `GET /media/{id}/playback-url`（既定15分）
 - 画面B（メディア取り込み）
 
-**受け入れ基準**
-- 50MB以下の音声をアップロードし、再生できる
-- `source_sha256` が別途計算した値と一致する
-- 同じ音声を二度上げても重複行ができない
-- 署名URLが期限切れ後にアクセスできない
-- **ファイル本体がAPIサーバを通過していない**（ネットワークログで確認）
+**受け入れ基準（機械検証・CIで自動）**
+- `M27` 保存パスが sha256 と mime から決まる（`filename` を使わない）
+- `M28` 登録の3分岐（`created` / `already_exists` / `restored`）と、並行INSERTの23505捕捉
+- `M29` `upsert` はサーバが `purged_at` で決める（リクエストから受け取らない）
+- `M30` 非メンバーは404、`viewer` の書き込みは403
+- `M31` `playback-url` の `matchIdFrom` が効いている
+- `M32` `media_sources` のRLS（アプリの分岐を外しても他人のものが見えない）
+- `M33` mime enum外／`byteSize` 50MB超を400で拒否
+- `M34` SHA-256 の計算
+- `M35` `@supabase/supabase-js` の import 元が storage / auth に限られている（静的検査）
 
-**人の確認待ち（H1）**: 実音声1本で、無作為10区間の再生位置 → **G1**
+**人の確認待ち（実 Supabase が要る）** → **G1**
+- `H1` 任意の時刻へシークして、その位置の音が鳴るか（10箇所）
+- `H9` 署名トークンでアップロードできるか（署名がバケットのポリシーを迂回するか）
+- `H10` 署名URLが期限切れ後にアクセスできない
+- `H11` ファイル本体がAPIサーバを通過していない（ネットワークログで確認）
+
+**先に人へ依頼すること**: バケット `media` の作成（非公開・50MB上限・許可mime 4値）。
+手順は `TRANSCRIPTION.md` §7.3。**Storage 層を書き終えた時点で依頼する。**
+画面Bまで進んでから「バケットがないと動かない」となると、そこで止まる。
 
 **やってはいけないこと**
 - サーバにffmpegを入れる
 - 署名URLをDBに保存する
+- **区間再生UIを作る**（`TRANSCRIPTION.md` §7.2 は P10 のもの。P3 には区間の元データが無い）
+- **50MBの音声を `fixtures/` に置く**（`check-no-real-data` の上限は5MBのまま。
+  CIで使う音声は実行時に生成する。50MBを実際に流す確認は H1 の側で行う）
 
 ---
 
@@ -339,11 +354,13 @@ Gold Dataset が必要になるのは P6（ステージ推定）からなので�
 
 **実行場所**: Web で実装 → **デスクトップで確認**
 
-**読むもの**: `REVIEW_SEMANTICS.md` 全体, `API_SPEC.md` §5
+**読むもの**: `REVIEW_SEMANTICS.md` 全体, `API_SPEC.md` §5, `TRANSCRIPTION.md` §7.2
 
 - 画面D: 左=区間一覧 / 中央=本文 / 右=再生・audibility・時刻確認
 - 4軸の状態表示。Judge View と 解析View の切替
-- キーボード操作（Space / ↑↓ / Tab / Ctrl+S）、前後余白付き再生
+- **`TRANSCRIPTION.md` §7.2 の区間再生仕様（前1.0秒/後0.5秒、キーボード操作、
+  再生速度、「5秒前から」「この先30秒」）は、ここで実装する。**
+  P3 の画面Bには区間の元データが無いため、先に作らない
 
 **受け入れ基準**
 - 本文を直すと `text_human` に入り `text_status = human_edited`

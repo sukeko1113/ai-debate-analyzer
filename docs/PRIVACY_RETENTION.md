@@ -82,6 +82,7 @@ Dだけ消してBを残す、のような穴あきは許さない（Bが残っ�
 | `argument_nodes.text` | 残す | 残す（要約であり逐語ではない） | 残す | 物理削除 |
 | `evidence_refs.cited_elements` | 残す | 残す | 残す | 物理削除 |
 | `match_members.display_name` | 残す | 残す | `null` | — |
+| `media_sources.uploaded_by` | 残す | 残す | `null` | — |
 | `judge_decisions` | 残す | 残す | `best_debater` を座席へ置換 | 物理削除 |
 | `export_runs` の生成物 | — | 生成物を物理削除（本文を含むため） | — | 物理削除 |
 | `edit_logs` の `before` / `after` | — | 本文を含む差分を `null` に置換 | 氏名を含む差分を `null` に置換 | — |
@@ -115,7 +116,20 @@ Dだけ消してBを残す、のような穴あきは許さない（Bが残っ�
 | `actor`, `at` | |
 
 ### `media_sources` への追加
-`purged_at timestamptz`
+`purged_at timestamptz`, `uploaded_by uuid`（C削除で `null`）
+
+`uploaded_by` は `actor_id` であり氏名ではないが、`match_members` を引けば人に辿れるため
+レベルCの対象に含める（`DATA_MODEL.md` §3）。
+
+**A削除した行は消さない。** `storage_path` を null にし `purged_at` を立てて残す
+（`source_sha256` は監査のため残す）。同じ音声を上げ直したときは、
+その行を再利用して `storage_path` を入れ直し、`purged_at` を null に戻す
+（`API_SPEC.md` §2.2 の `restored`）。
+
+UNIQUE(`match_id`, `source_sha256`) があるため、行を作り直すことはできない。
+「消したのに二度と入れられない」を避けるための復活経路である。
+**一度消して入れ直した履歴は `retention_events` に残る**ので、
+`media_sources` の行が上書きされても、削除があった事実は追える。
 
 ### `transcript_segments` への追加
 `text_purged_at timestamptz`, `is_self_introduction bool`（名乗り区間の印）
