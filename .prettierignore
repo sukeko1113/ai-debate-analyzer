@@ -17,3 +17,4 @@ CLAUDE.md
 README.md
 fixtures/gold-01/speeches/
 fixtures/gold-01/*.md
+fixtures/gold-01/gold/*.md
