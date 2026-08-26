@@ -1,0 +1,88 @@
+{
+  "$id": "https://github.com/sukeko1113/ai-debate-analyzer/schemas/argument-node.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "issueId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "CLAIM",
+        "ATTACK",
+        "DEFENSE",
+        "QUESTION",
+        "ANSWER",
+        "SUMMARY_POINT"
+      ]
+    },
+    "role": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "present",
+            "effect",
+            "importance",
+            "evidence",
+            "other"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stageNo": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    },
+    "text": {
+      "type": "string"
+    },
+    "segmentIds": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "reviewStatus": {
+      "type": "string",
+      "enum": [
+        "suggested",
+        "reviewed",
+        "confirmed",
+        "excluded"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "issueId",
+    "kind",
+    "role",
+    "stageNo",
+    "text",
+    "segmentIds",
+    "reviewStatus"
+  ]
+}

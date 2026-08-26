@@ -1,0 +1,130 @@
+{
+  "$id": "https://github.com/sukeko1113/ai-debate-analyzer/schemas/judge-run.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "matchId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "flowRunId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "rulesetVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assessments": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "probability": {
+            "type": "string",
+            "enum": [
+              "Hi",
+              "Lo"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "enum": [
+              "Large",
+              "Small"
+            ]
+          },
+          "strength": {
+            "type": "string",
+            "enum": [
+              "Strong",
+              "Weak",
+              "None"
+            ]
+          },
+          "segmentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "issueId",
+          "probability",
+          "value",
+          "strength",
+          "segmentIds"
+        ]
+      }
+    },
+    "votingIssueDraft": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "AD1",
+            "AD2",
+            "DA1",
+            "DA2"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "winnerDraft": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "AFF",
+            "NEG"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "newArgumentFlags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "matchId",
+    "flowRunId",
+    "rulesetVersion",
+    "model",
+    "assessments",
+    "votingIssueDraft",
+    "winnerDraft",
+    "newArgumentFlags"
+  ]
+}

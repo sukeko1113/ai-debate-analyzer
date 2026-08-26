@@ -1,0 +1,135 @@
+{
+  "$id": "https://github.com/sukeko1113/ai-debate-analyzer/schemas/flow-link.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "from": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "to": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "relation": {
+      "type": "string",
+      "enum": [
+        "ATTACKS",
+        "DEFENDS",
+        "EXTENDS",
+        "COMPARES",
+        "QUESTIONS",
+        "ANSWERS",
+        "CITES",
+        "DROPS"
+      ]
+    },
+    "effectKind": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_true",
+            "not_unique",
+            "not_necessary",
+            "no_link",
+            "no_solvency",
+            "not_important",
+            "value_turn",
+            "evidence_weak",
+            "logic_jump",
+            "re_evidence",
+            "re_explain",
+            "counter_example",
+            "mitigate"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "comparison": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "axis": {
+            "type": "string",
+            "enum": [
+              "magnitude",
+              "probability",
+              "timeframe",
+              "value"
+            ]
+          },
+          "favors": {
+            "type": "string",
+            "enum": [
+              "AFF",
+              "NEG",
+              "neither"
+            ]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "debater",
+              "judge"
+            ]
+          },
+          "segmentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "axis",
+          "favors",
+          "rationale",
+          "source",
+          "segmentIds"
+        ]
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reviewStatus": {
+      "type": "string",
+      "enum": [
+        "suggested",
+        "reviewed",
+        "confirmed",
+        "excluded"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "from",
+    "to",
+    "relation",
+    "confidence",
+    "reviewStatus"
+  ]
+}
