@@ -543,7 +543,44 @@ export const POST = defineHandler({
   警告にすると、記録の無い変更がいつか必ず本番へ出る。
 - 他人の match は 403 ではなく **404** を返す。403 だと存在が漏れる。
 
-### 11.2 `defineHandler` が担保すること
+### 11.2 id が match でないとき（`app/api/v1/media/[id]/playback-url/route.ts` より）
+
+`defineHandler` は既定で `params.id` を match id とみなす。
+`/media/{id}` のように id が match でないエンドポイントでは **`matchIdFrom` を渡す**。
+渡し忘れると「match id を特定できません」の 500 になる。
+
+```ts
+export const GET = defineHandler({
+  auth: "match:read",
+  params: z.object({ id: z.uuid() }),
+  /**
+   * match は media_sources の行から引く。
+   *
+   * このクエリは認可の前に走るが、SET LOCAL app.actor_id 済みの
+   * トランザクション上なので RLS が効く。見えないメディアはここで 404 になる。
+   * 403 にすると、その id のメディアが存在することが漏れる。
+   */
+  matchIdFrom: async (params, tx) => (await requireMedia(tx, params.id)).matchId,
+  handler: async ({ params, tx }) => {
+    const media = await requireMedia(tx, params.id);
+    if (media.storagePath === null) {
+      throw new ApiError("RETENTION_PURGED", "この音声は保持期限またはA削除により削除済みです");
+    }
+    const signed = await getStorageSigner(parseEnv(process.env)).createPlaybackUrl(
+      media.storagePath,
+      PLAYBACK_URL_TTL_SECONDS,
+    );
+    return { data: { url: signed.url, expiresAt: signed.expiresAt } };
+  },
+});
+```
+
+- `matchIdFrom` は `(params, tx) => string | Promise<string>` である。
+  id から表を引かないと match が分からない場合のために `tx` を受け取る。
+- **この経路を外すと、持ち主でも 404 になる**（既定の `params.id` を match id として
+  照会するため）。黙って通ることはない。P3 で実際に外して確かめてある。
+
+### 11.3 `defineHandler` が担保すること
 1. JWT検証 → `actor`
 2. トランザクション開始 → `SET LOCAL app.actor_id`
 3. Zod検証（`params` / `body`）→ 失敗は `400 VALIDATION_FAILED`

@@ -585,3 +585,141 @@ DB トリガが `AD001` を投げ、`toApiError` が `CONSENT_REQUIRED` へ写�
   同じ理由で `startup.ts` は `parseEnv()` 全体を呼ばず、`RULESET_DEFAULT` だけを見ている（件3）。
 - CI に `check-handler-routes`（quality ジョブ）と、`test:db` 後の `db:migrate` 再実行
   （database ジョブ・冪等性の検査）を足した。
+
+---
+
+## P3 から P4 への申し送り
+
+P3（メディア取り込み）の作業中に、実際にコード・DB・CI を触って確認した事項。
+推測は含まない。確認した環境は Web版クラウドセッション
+（PostgreSQL 16.11 / zod 4.4.3 / vitest 4.1.11 / Next.js 16.3.2 / TypeScript 5.9 /
+@supabase/supabase-js 2.112.4 / tus-js-client 4.3.1）。
+
+### 件23 Supabase の resumable(TUS) は署名トークンを受け付ける — 判断済み（一次情報で確認）
+
+着手前、私は「TUS は `Authorization: Bearer` でしか認可できず、
+`createSignedUploadUrl` のトークンは非 resumable 専用ではないか」と申告した。**これは誤りだった。**
+公式ドキュメントの原文を当たって確認した実測は次のとおり。
+
+- エンドポイント: `https://{ref}.storage.supabase.co/storage/v1/upload/resumable`
+  **`{ref}.supabase.co` ではなく `{ref}.storage.supabase.co`**（直結ホスト）
+- 認可は2方式。`authorization: Bearer <access_token>` ヘッダ、
+  または **`x-signature` ヘッダに `createSignedUploadUrl` の token**
+  （docs「Presigned uploads」節。公式例 `examples/storage/resumable-upload-signed-uppy` もある）
+- チャンクは 6MB 固定。原文 `chunkSize: 6 * 1024 * 1024, // NOTE: it must be set to 6MB (for now) do not change it`
+- 署名トークンの有効期間は **2時間固定**。指定する引数が無い
+  （storage-js のコメント `They are valid for 2 hours.`。options は `{ upsert: boolean }` のみ）
+- TUS が払い出すアップロード固有URLの有効期間は最大24時間（トークンの2時間とは別の時計）
+- 標準アップロード側の原文は「6MB超は TUS を推奨」。**つまり TASKS.md の元の記述は誤りではなかった。**
+  本件が常に TUS を使うのは設計判断であり、事実の訂正ではない（TRANSCRIPTION.md §7.3 に理由を残した）
+
+**このセッションの egress は `supabase.com` と `api.github.com` を遮断する。**
+`raw.githubusercontent.com` は通ったので、原文はそこから取得した。P5・P8 で外部の仕様を
+確かめるときも同じ経路が使える。
+
+### 件24 署名トークンがバケットのポリシーを迂回するかは未確認 — **P3 の H9 で人が確かめる**
+
+docs の "Signed upload URLs can be used to upload files to the bucket
+**without further authentication**" と、認可をトークン発行時に行う設計からは迂回する読みである。
+**迂回する前提で実装した。** バケット側のポリシーは「誰も直接書けない」で作る。
+
+**もし 403 になったら、ポリシーを緩めず報告すること**（ACCEPTANCE.md H9 の注記）。
+`x-signature` 方式のときオブジェクトの `owner` に何が記録されるかも未確認である。
+
+### 件25 `matchIdFrom` を `(params, tx)` に広げた — P4 以降のすべてで使える
+
+`/media/{id}` は id から表を引かないと match が分からない。
+`matchIdFrom?: (params: P, tx: TransactionSql) => string | Promise<string>` にした。
+
+このクエリは**認可より前**に走る。`SET LOCAL app.actor_id` 済みなので RLS は効く。
+したがって「見えない行は引けない → 404」に倒せる。403 にすると存在が漏れる。
+
+P4 の `/jobs/{id}/retry`・`/jobs/{id}/cancel` も同じ形が要る（API_SPEC.md §3 に注記済み）。
+**外すと持ち主でも 404 になる**ことを実測で確かめた（既定の `params.id` を match id とみなすため）。
+黙って通ることはないので、回帰で気づける。
+
+### 件26 postgres.js の savepoint が無いと 23505 の捕捉が成立しない — 参考情報（件13 の続き）
+
+`POST /media` は INSERT を先に撃ち UNIQUE 違反（23505）を捕まえて SELECT し直す。
+**`tx.savepoint()` で囲まないと、捕捉しても後続が動かない。** 実測（savepoint だけ外した状態）:
+
+```
+[defineHandler] 未処理の例外 PostgresError: duplicate key value violates unique constraint "media_sources_match_sha_key"
+ × 同じ指紋を二度登録しても行は増えず already_exists / 200
+ × purge 済みの行は再利用され restored / 200 になる（行は増えない）
+```
+
+例外を握りつぶしてもトランザクション自体が中断するためである（件13）。
+P4 でジョブの冪等キー（`match_id + kind + target_stage_no + params_hash`）が
+UNIQUE 違反を返す設計にするなら、同じ形が要る。
+
+### 件27 A削除を模す UPDATE は所有者接続では効かない — 参考情報（件12 を実際に踏んだ）
+
+テストで `migratorClient()` を使って `purged_at` を立てたところ、
+FORCE ROW LEVEL SECURITY のため **0 行で静かに成功**し、3 件が落ちた。
+
+```
+ × M29 purge 済みなら ready を返し、署名は upsert: true で発行される
+   AssertionError: expected 'already_exists' to be 'ready'
+ × purge 済みの行は再利用され restored / 200 になる（行は増えない）
+ × A削除済みは 410 RETENTION_PURGED（404 にしない）
+```
+
+`readAsActor` ＋ `RETURNING` の件数検査に直して解決した。
+**書き込みも `app_server` ＋ `withActor` で行うこと。** 件12 は読みの話として書いてあるが、
+書きでも同じである（むしろ書きの方が「消したつもりで消えていない」になるぶん危ない）。
+
+### 件28 `media_sources` の DELETE ポリシーは意図的に置いていない — 参考情報
+
+A削除は行を消さず `storage_path` を null にして `purged_at` を立てる操作であり、
+行を消す経路は設計に無い（PRIVACY_RETENTION.md §4）。
+ポリシーが無ければ RLS が拒否するので、**持ち主でも DELETE は 0 行**になる（実測済み）。
+
+P19（保持と削除）で物理削除を入れたくなったときは、この判断を読んでからにすること。
+`source_sha256` は監査のために残す前提である。
+
+### 件29 `upload-intent` も `edit_logs` に記録している — 参考情報
+
+**ファイル本体が API を通らない**ため、サーバ側にこの記録が無いと
+「誰がその音声を置いたか」を後から追えない。署名の発行は
+「誰に、どのパスへの書き込み権を、上書き可否つきで渡したか」の記録である。
+
+`defineHandler` は変更系メソッドで `audit.record()` が 0 件だと 500 で落とす（件14）。
+`upload-intent` は DB を変更しないが POST なので、この規則に当たる。
+**規則を緩めるのではなく、記録する側に倒した。**
+
+### 件30 認証導線はまだ無い — **P4 以降で判断が要る（件20 の続き）**
+
+画面B（`app/matches/[id]/media/page.tsx`）も画面Aと同じく、JWT を手で貼り付ける。
+件20 の「ログイン導線をどの PR で入れるか」は**未決のままである**。
+P3 の着手時に決めるのが自然と書いたが、決まらなかった。
+
+Supabase Auth を実際に触る PR で入れること。`supabase-js` は Auth と Storage 専用であり、
+`packages/core/src/storage/**` と `packages/core/src/auth/**` 以外からの import は
+静的検査で落ちる（ACCEPTANCE.md M35。`scripts/lib/supabase-imports.ts`）。
+
+### 件31 SHA-256 は「ストリーミング計算」ではない — 参考情報
+
+TASKS.md P3 は「Web Crypto で SHA-256 をストリーミング計算」と書いているが、
+**Web Crypto に逐次更新の API は無い**（`crypto.subtle.digest` は入力全体を受け取る）。
+自前実装は「暗号処理を手書きしない」より優先する理由が無いので採らなかった。
+
+入力が 50MB 以下と決まっているため全体を読む（`packages/core/src/media/sha256.ts`）。
+**上限を上げるときは、ここも見直すこと。** 上限が無ければこの判断は成り立たない。
+
+### そのほか（参考情報）
+
+- `UploadIntentRes` の `ready` に **`bucket` を足した**。TUS の metadata（`bucketName`）に要り、
+  クライアントは `SUPABASE_STORAGE_BUCKET`（`NEXT_PUBLIC_` が付かない）を読めないためである。
+  秘密ではない（署名トークンの適用範囲がそのバケットに閉じている）。
+- **Storage の設定が無いときに stub へ落ちる分岐は作っていない。**
+  作ると、設定漏れの本番が「上がったように見えてどこにも保存されていない」状態になる。
+  テストは `setStorageSignerForTests()` で明示的に差し替える（本番では例外）。
+- `viewer` の 403 は **DB を通しては検証できていない**。件10 の INSERT ポリシーにより
+  `match_access` に `viewer` の行を作れないためである。純粋関数 `accessDenial` の 12 通りで
+  確認済みであり、DB を通した 403 は共有機能の PR で検証する。
+- **バケットはまだ存在しない。** 作成は人手（TRANSCRIPTION.md §7.3 の表）。
+  P4 のジョブは音声の実体を必要としないが、G1 と ★G0 は必要とする。
+- `check-no-real-data` の上限は **5MB のまま**変えていない。CI で使う音声は実行時に生成する
+  （`app/dev/media-probe/silent-wav.ts` と同じ考え方）。
+  Gold Dataset の `gold-01.mp3`（約20MB）を置くときに、上限の扱いを別途決めること。
