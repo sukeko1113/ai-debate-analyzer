@@ -1,0 +1,157 @@
+{
+  "$comment": [
+    "Gold Dataset v01 — 正解 Judge Sheet（機械可読版）。",
+    "根拠は fixtures/gold-01/gold/judge-sheet.md を正本とする。",
+    "segmentIds は音声組み立て後に確定する。現時点では stageNo と cue で位置を示す。",
+    "これは『唯一の正しい判定』ではない。AI の判定候補と突き合わせるための基準である。",
+    "ACCEPTANCE.md §3.1 のとおり、Winner 一致率を上げるためにプロンプトを調整しない。"
+  ],
+  "matchId": "gold-01",
+  "rulesetId": "henda-20",
+  "rulesetVersion": "2025-11-28",
+
+  "issues": [
+    { "label": "AD1", "side": "AFF", "title": "Tourism Revenue" },
+    { "label": "AD2", "side": "AFF", "title": "International Exchange" },
+    { "label": "DA1", "side": "NEG", "title": "Security and Public Health" },
+    { "label": "DA2", "side": "NEG", "title": "Pressure on Local Communities" }
+  ],
+
+  "assessments": [
+    {
+      "issueId": "AD1",
+      "probability": "Hi",
+      "value": "Small",
+      "strength": "Weak",
+      "rationale": "因果の方向は最後まで否定されなかった。⑤の攻撃は規模を争っており方向を認めている。しかし9.6億ドルは⑨でAFF自身が撤回し、増加分の規模は示されないまま終わった。",
+      "keyMoments": [
+        { "stageNo": 5, "cue": "If Solera is larger, it absorbs a surge that Meridia cannot." },
+        { "stageNo": 9, "cue": "She is right that we did not read out its source, and I will not pretend otherwise. So set it aside." },
+        { "stageNo": 11, "cue": "So the advantage stands at a smaller size than we claimed, and it stands." }
+      ]
+    },
+    {
+      "issueId": "AD2",
+      "probability": "Lo",
+      "value": "Small",
+      "strength": "None",
+      "rationale": "到着から教育までの最後の段階が最後まで証明されなかった。⑪でAFF自身が『支持的な理由であって肯定する理由ではない』と位置づけた。",
+      "keyMoments": [
+        { "stageNo": 5, "cue": "Between arrivals and education there are three steps, and the affirmative proved none of them." },
+        { "stageNo": 11, "cue": "It is a supporting reason, not the reason to affirm." }
+      ]
+    },
+    {
+      "issueId": "DA1",
+      "probability": "Hi",
+      "value": "Large",
+      "strength": "Strong",
+      "rationale": "この試合で最も強い論点。AFFは三度にわたりビザ審査を攻撃したが、NEGの主張は健康申告だった（⑫）。因果の接続は一度も直接攻撃されていない。固有性は40%分削られたが、⑧でKen自身が残り60%の部分的価値を認めた。",
+      "keyMoments": [
+        { "stageNo": 3, "cue": "this declaration is the only health information our border service receives before arrival" },
+        { "stageNo": 4, "cue": "So forty percent of the world already arrives without one, today." },
+        { "stageNo": 8, "cue": "Partial value, yes." },
+        { "stageNo": 12, "cue": "Our argument is still standing because they have spent three speeches attacking something we did not claim." }
+      ],
+      "note": "Alvarez医師の証言は肩書が述べられておらず信憑性を割り引く（violation V7）。ただし2019年の流行という事実自体は争われていない。"
+    },
+    {
+      "issueId": "DA2",
+      "probability": "Lo",
+      "value": "Large",
+      "strength": "None",
+      "rationale": "価値は大きく、不可逆性という性質も正しく強調された。しかし因果の中間の一歩（新規訪問者がVeranoに集中する）を否定側自身が二度、推論であると認めた。さらに石段の摩耗はビザ制度下の10年で起きており、固有性も示されていない。",
+      "keyMoments": [
+        { "stageNo": 4, "cue": "The report shows the pressure. The reasoning is ours." },
+        { "stageNo": 7, "cue": "The wear they describe happened under the system they are defending." },
+        { "stageNo": 10, "cue": "Correct, and I said so in questioning. But his alternative is also reasoning" }
+      ]
+    }
+  ],
+
+  "comparison": {
+    "arithmetic": "AD1(Weak) + AD2(None) vs DA1(Strong) + DA2(None) — 単純な足し算ではNEGが上回る",
+    "axes": [
+      {
+        "axis": "value",
+        "name": "不可逆性",
+        "source": "debater",
+        "raisedAt": [{ "stageNo": 10 }, { "stageNo": 11 }],
+        "favors": "NEG",
+        "applied": false,
+        "reason": "DA2に関する基準だが、DA2のStrengthがNoneであるため比較の対象を持たない"
+      },
+      {
+        "axis": "magnitude",
+        "name": "被害を受ける範囲",
+        "source": "debater",
+        "raisedAt": [{ "stageNo": 11 }, { "stageNo": 12 }],
+        "favors": "AFF",
+        "applied": false,
+        "reason": "同上。⑫の反論根拠（航空座席）は新しい議論として除外される"
+      }
+    ],
+    "decisive": "DA2の因果が否定側自身の応答（④・⑩）で崩れたこと。この試合で最も大きな価値を持つ主張が、証明を欠いたまま終わった。"
+  },
+
+  "decision": {
+    "winner": "AFF",
+    "winnerTeam": "Northshore High School",
+    "votingIssue": "DA2",
+    "votingIssueRationale": "DA1がStrongで残った以上、それだけを見ればNEGが勝つ試合だった。そうならなかったのは、不可逆性という最も重い価値を担っていたDA2が因果を証明されないまま終わったからである。しかもその因果を手放したのは否定側自身である。",
+    "commPoints": { "aff": 3, "neg": 3 },
+    "bestDebater": null,
+    "closeness": "narrow",
+    "closenessNote": "NEG勝ちも十分に成立する。DA1をVoting Issueに置き、不可逆性とAFFの攻撃対象のずれを重く見れば逆になる。判定が割れうる試合であることは教材としてはむしろ価値がある。"
+  },
+
+  "excluded": [
+    {
+      "what": "航空座席供給によるAD1 effectの否定",
+      "stageNo": 12,
+      "violationId": "V1",
+      "reason": "新しい議論（条項4.2.2）。⑤にも③にも出ていない新規の攻撃であり、新しい証拠を伴う",
+      "changesOutcome": true,
+      "changesOutcomeNote": "これを算入すればAD1のProbabilityがLoに落ち、NEG勝ちになる可能性が高い。除外の判断が結論を左右する数少ない例。"
+    },
+    {
+      "what": "3つ目のAdvantage（regional employment）",
+      "stageNo": 1,
+      "violationId": "V2",
+      "reason": "Advantageは最大2つ（条項2.1.1.3）。主要な2つ以外は無視する",
+      "changesOutcome": false,
+      "changesOutcomeNote": "内容がAD1と重複しており、②でMina自身が『収入から雇用が生まれる』と認めている"
+    },
+    {
+      "what": "ベル後20秒の発言",
+      "stageNo": 9,
+      "violationId": "V9",
+      "reason": "終了後10秒を超えた発言（条項2.2.3）",
+      "changesOutcome": false,
+      "changesOutcomeNote": "内容はパスポート管理と検疫権限への言及であり、算入しても結論は変わらない"
+    },
+    {
+      "what": "⑤の800ドルへの再反論",
+      "stageNo": 7,
+      "violationId": "V10",
+      "reason": "直前の否定アタックへの再反論（条項2.1.4）",
+      "changesOutcome": false,
+      "changesOutcomeNote": "⑨でも同じ内容が述べられており、そちらは有効"
+    }
+  ],
+
+  "notExcluded": [
+    {
+      "what": "可逆性と被害範囲という比較の観点",
+      "stageNo": 11,
+      "trapId": "T1",
+      "reason": "新しいAdvantageでも新しいAttackでもない。既出のAD/DAを比べる観点であり、条項4.2.2が明示的に許容する"
+    },
+    {
+      "what": "③のAD2攻撃への反論",
+      "stageNo": 7,
+      "trapId": "T2",
+      "reason": "否定立論にアタックに該当するものが含まれていた場合の例外（条項2.1.4）"
+    }
+  ]
+}
