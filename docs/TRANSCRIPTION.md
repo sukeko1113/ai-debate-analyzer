@@ -299,6 +299,12 @@ Supabase の公式ドキュメントは「6MB超は TUS resumable upload を推�
 4. ブラウザが TUS でアップロードする。トークンは **`x-signature` ヘッダ**に載せる
 5. `POST /media`（`match:write`）で登録する
 
+- **SHA-256 は「ストリーミング計算」ではない。**
+  Web Crypto に逐次更新の API は無く（`crypto.subtle.digest` は入力全体を受け取る）、
+  自前実装は「暗号処理を手書きしない」より優先する理由が無い。
+  入力が **50MB 以下と決まっているから**全体を読んでいる
+  （`packages/core/src/media/sha256.ts`）。**サイズ上限を上げるときは、ここも見直すこと。**
+  上限が無ければこの判断は成り立たない。
 - **エンドポイントは `{NEXT_PUBLIC_SUPABASE_STORAGE_URL}/storage/v1/upload/resumable`。**
   `{project-ref}.supabase.co` ではなく `{project-ref}.storage.supabase.co` を使う
   （公式: 大きなファイルでは直結ホストを使うこと）。

@@ -97,6 +97,7 @@
 | method | path | 認可 | 備考 |
 | --- | --- | --- | --- |
 | `POST` | `/api/v1/matches` | `authenticated` | 作成者がownerになる。`Idempotency-Key` 必須（§0.4 観点1） |
+| `GET` | `/api/v1/matches` | `authenticated` | 一覧。RLS が見える範囲へ絞るので、match 単位の認可は要らない |
 | `GET` | `/api/v1/matches/{id}` | `match:read` | |
 | `PATCH` | `/api/v1/matches/{id}` | `match:write` | `expectedVersion` 必須 |
 | `POST` | `/api/v1/matches/{id}/consent` | `match:owner` | 許諾の記録 |
