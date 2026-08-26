@@ -105,12 +105,17 @@ ruleset id: `henda-20` / version: 大会ルールの改定日（例 `2025-11-28`
 
 ## 4. 立論の証明構造（条項 2.1.1 / 2.1.2）
 
-各Issueは3つのroleに分解して保存する。
+条項が定める**証明構造は3つ**である。
 
 | Issue | `present` | `effect` | `importance` |
 | --- | --- | --- | --- |
 | AFF Advantage | 現状分析 / inherency / necessity | Planのeffect / solvency / process | importance / significance / impact |
 | NEG Disadvantage | 現状分析 / uniqueness | Planからのeffect / link / process | importance / significance / impact |
+
+**保存する `role` は5値である。** 上の3つに `evidence`（主張を支える根拠と理由づけ）と、
+どれにも当たらない `other` を加える（`ARGUMENT_MODEL.md` §1）。
+`evidence` は「なぜそう言えるか」を述べた言明であり、それ自体が攻撃対象になるため、
+証明構造の3つとは別のノードとして持つ必要がある。
 
 AD・DAとも**各側最大2**。見かけ2つでも中身が3つ以上なら、主要な2つ以外は無視される。
 

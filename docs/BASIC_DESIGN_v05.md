@@ -566,10 +566,10 @@ Judge Viewでunknownの本文を隠す設計も考えられるが、それでは
 | オブジェクト | 主な項目 | 役割 |
 | --- | --- | --- |
 | Issue | label（AD1 / AD2 / DA1 / DA2）、side、title | 主要論点。各側最大2 |
-| ArgumentNode | kind、role（present / effect / importance）、text、stage_no、evidence_refs | Claim / Attack / Defense等の単位 |
+| ArgumentNode | kind、role（present / effect / importance / evidence / other。§9.5）、text、stage_no、evidence_refs | Claim / Attack / Defense等の単位 |
 | EvidenceRef | 引用内容、出典種別、出典要素の充足状況、transcript_segment_id | 根拠 |
 | Question | type（confirmation / examination）、対象node | 質疑 |
-| FlowLink | from_node、to_node、relation、confidence、review_status | 矢印 |
+| FlowLink | from_node、to_node、relation、effect_kind、effectiveness、comparison、confidence、review_status | 矢印。何をしたか・効いたか・比較の中身を持つ（§9.6） |
 | SummaryLink | 総括で拾ったIssue、比較軸、相手Issueとの比較 | 最終比較 |
 | RuleFlag | type、target、rationale、status | 判定除外候補 |
 
@@ -799,7 +799,7 @@ AD1 / AD2 / DA1 / DA2の強さの変化を、HPバーのように見せる補助
 | issues | id, match_id, label, side, title, review_status | AD1〜DA2 |
 | argument_nodes | id, match_id, issue_id, kind, role, stage_no, text, review_status | 議論単位 |
 | evidence_refs | id, node_id, source_type, cited_elements（jsonb）, transcript_segment_id, completeness | 証拠 |
-| flow_links | id, match_id, from_node, to_node, relation, confidence, review_status | 矢印 |
+| flow_links | id, match_id, from_node, to_node, relation, effect_kind, rationale_ai, effectiveness_ai, effectiveness_human, effectiveness_set_by, comparison, confidence, review_status | 矢印。列定義は DATA_MODEL.md §6 |
 | rule_flags | id, match_id, type, target_ref, rationale, status, decided_by | ルール検査結果 |
 | flow_runs | id, match_id, model, prompt_version, ruleset_version, created_at | 解析Run |
 | judge_runs | id, match_id, flow_run_id, ruleset_version, model, voting_issue_draft, winner_draft | 判定Run |
@@ -1317,7 +1317,7 @@ v02の「次の一手」は、実試合1本について人間が作った正解F
 | アンカー照合 | 合成fixtureでの時刻誤差 | 中央値0.5秒以内、被覆率閾値未満は書き換えなし |
 | ステージ推定 | 合成試合での境界誤差とステージ誤分類 | 誤差2秒以内、誤分類ゼロ |
 | ルール検査 | New Argument等のPrecision / Recall | Recall 0.9以上、Precisionは記録して人が判断 |
-| Issue抽出 | AD/DAラベル一致、present / effect / importanceの抽出 | 合成試合で一致率を記録 |
+| Issue抽出 | AD/DAラベル一致、present / effect / importance / evidenceの抽出 | 合成試合で一致率を記録 |
 | Flowリンク | Attack→対象Claim、Defense→Attackの一致率 | 同上 |
 | 出力 | 6成果物の生成、根拠なし段落の不在 | 根拠なし段落ゼロ |
 | 人手の保存 | 再解析前後でhuman_*件数が減らない | 減っていたら失敗 |
@@ -1451,7 +1451,7 @@ v02の「次の一手」は、実試合1本について人間が作った正解F
 
 | 肯定側の行 | 内容 |
 | --- | --- |
-| ① AFF Constructive | AD1 / AD2（present / effect / importance） |
+| ① AFF Constructive | AD1 / AD2（present / effect / importance / evidence） |
 | ② NEG Q&A | 否定側質疑（細い列） |
 | ⑤ NEG Attack | → AD への攻撃 |
 | ⑥ AFF Q&A | 肯定側質疑（細い列） |
@@ -1460,7 +1460,7 @@ v02の「次の一手」は、実試合1本について人間が作った正解F
 
 | 否定側の行 | 内容 |
 | --- | --- |
-| ③ NEG Constructive | DA1 / DA2（present / effect / importance） |
+| ③ NEG Constructive | DA1 / DA2（present / effect / importance / evidence） |
 | ④ AFF Q&A | 肯定側質疑（細い列） |
 | ⑦ AFF Attack | → DA への攻撃 |
 | ⑧ NEG Q&A | 否定側質疑（細い列） |
