@@ -1,0 +1,186 @@
+{
+  "$comment": [
+    "Gold Dataset v01 — 仕込んだ違反と罠の正解データ。",
+    "ACCEPTANCE.md §4.4 を正本とする。",
+    "P15（RuleFlag 9種）の精度測定に使う。",
+    "at_ms は音声の組み立て後に確定する。現時点では stage と手がかりの文言のみ。",
+    "expected: true = 検出すべき / false = 検出してはいけない（罠）"
+  ],
+  "rulesetId": "henda-20",
+  "violations": [
+    {
+      "id": "V1",
+      "expected": true,
+      "type": "new_argument",
+      "stageNo": 12,
+      "difficulty": "high",
+      "cue": "Meridia has four international air routes. Airline seat supply into Meridia grew by two percent last year.",
+      "rationale": "AD1 の effect に対する新しい攻撃。⑤ 否定アタックにも ③ 否定立論にも出ていない。新しい証拠（航空座席供給）を伴い、相手に反論の機会がない。条項 4.2.2。",
+      "pairedWith": "T1",
+      "pairNote": "⑪ の T1 と対になる。どちらも総括で初出だが、こちらは新しい論点、T1 は既出論点の比較。"
+    },
+    {
+      "id": "V2",
+      "expected": true,
+      "type": "extra_issue",
+      "stageNo": 1,
+      "difficulty": "medium",
+      "cue": "Today I will present three advantages. Tourism revenue, international exchange, and regional employment.",
+      "rationale": "Advantage は最大2つ（条項 2.1.1.3）。3つ目（regional employment）は主要な2つ以外として除外候補になる。",
+      "extraIssueLabel": "regional employment"
+    },
+    {
+      "id": "V3",
+      "expected": true,
+      "type": "over_word_limit",
+      "stageNo": 3,
+      "difficulty": "low",
+      "measured": { "words": 644, "limit": 600 },
+      "rationale": "立論は最大600語（条項 2.1.10）。",
+      "alsoTriggers": "V3b"
+    },
+    {
+      "id": "V3b",
+      "expected": true,
+      "type": "over_speech_rate",
+      "stageNo": 3,
+      "difficulty": "low",
+      "measured": { "wpm": 161.0, "limit": 150 },
+      "rationale": "644語 ÷ 4分 = 161 wpm（条項 2.1.10）。1つの欠陥が2つのフラグを生む例。実際の試合でも起きるため、両方を正解とする。"
+    },
+    {
+      "id": "V4",
+      "expected": true,
+      "type": "over_speech_rate",
+      "stageNo": 5,
+      "difficulty": "low",
+      "measured": { "wpm": 158.3, "limit": 150 },
+      "rationale": "475語 ÷ 3分 = 158.3 wpm（条項 2.1.10）。"
+    },
+    {
+      "id": "V5",
+      "expected": true,
+      "type": "speaker_role_mismatch",
+      "stageNo": 6,
+      "difficulty": "low",
+      "expectedSeat": "A3",
+      "actualSeat": "A2",
+      "cue": "Thank you, chairperson. My name is Ken.",
+      "rationale": "担当表（条項 2.2）では ⑥ 肯定質疑は 4人チームなら A3（Sara）。実際には A2（Ken）が名乗って行う。名乗り自体は正しく行われるため、名乗りの有無ではなく担当表との突き合わせが必要。"
+    },
+    {
+      "id": "V6",
+      "expected": true,
+      "type": "evidence_incomplete",
+      "stageNo": 1,
+      "difficulty": "medium",
+      "evidenceId": "E1",
+      "missing": ["year"],
+      "cue": "According to the Meridia Tourism Authority Statistics, sixty percent of the countries in the world still need a tourist visa",
+      "rationale": "事実・統計データの引用には出典と年度の両方が必要（条項 3.2.1）。出典は述べているが年度がない。同じスピーチ内の T3 は完備しているため、「引用があれば全部フラグ」では区別できない。"
+    },
+    {
+      "id": "V7",
+      "expected": true,
+      "type": "evidence_incomplete",
+      "stageNo": 5,
+      "difficulty": "medium",
+      "evidenceId": "E5",
+      "missing": ["credential"],
+      "cue": "Doctor Alvarez says that the health declaration is the single most useful piece of information",
+      "rationale": "専門家の証言には氏名と肩書・権威の両方が必要（条項 3.2.1）。氏名のみ。この引用が Alvarez の初出であることが重要（後から補われていない）。⑥ の質疑で Ken が肩書を問い、Hana が答えられない場面が試合内の裏付けになる。"
+    },
+    {
+      "id": "V8",
+      "expected": true,
+      "type": "own_calculation",
+      "stageNo": 1,
+      "difficulty": "medium",
+      "cue": "Last year we received one point two million visitors, and each visitor spends about eight hundred dollars, so this industry is worth nine hundred and sixty million dollars to us.",
+      "rationale": "独自に計算した推定値を述べる場合、「自分で計算した」と明確に述べ、計算の元になった全ての統計データを条項 3.2.1 の形で引用したうえで、計算方法も述べる必要がある（条項 3.2.1.1・2025年追加）。ここではいずれも行われていない。",
+      "note": "元データ（1.2M・$800）は E1 由来だが E1 自体の年度が欠落しているため、V6 とも関係する。両方を独立に記録するか、統合するかは検出器の設計に委ねる。"
+    },
+    {
+      "id": "V9",
+      "expected": true,
+      "type": "over_time",
+      "stageNo": 9,
+      "difficulty": "low",
+      "bellAtMs": 1860000,
+      "graceEndsAtMs": 1870000,
+      "speechEndsAtMs": 1880000,
+      "overrunSec": 20,
+      "cue": "And one more point before I finish.",
+      "rationale": "スピーチ終了後10秒を超えた発言は一切許されない（条項 2.2.3）。ベル後 約20秒。",
+      "note": "原稿だけでは検出できない。stage_segments.end_ms を基準に判定するため、Pass C のアンカー照合が正しく効いていないと検出できない。時刻精度の間接的な検査でもある。"
+    },
+    {
+      "id": "V10",
+      "expected": true,
+      "type": "premature_rebuttal",
+      "stageNo": 7,
+      "difficulty": "high",
+      "cue": "Ms. Hana said a moment ago that our eight hundred dollar figure is a number we made ourselves. Let me answer that now.",
+      "referencedStageNo": 5,
+      "rationale": "肯定アタックで直前の否定アタック⑤への再反論を行うことは禁止（条項 2.1.4）。ディフェンス⑨で行うべきもの。",
+      "pairedWith": "T2",
+      "pairNote": "同じスピーチ内の T2 は ③ を参照しており正当。語調ではなく参照先のスピーチを辿らなければ区別できない。"
+    }
+  ],
+  "traps": [
+    {
+      "id": "T1",
+      "expected": false,
+      "wouldBeType": "new_argument",
+      "stageNo": 11,
+      "difficulty": "high",
+      "cue": "Now the comparison, and I want to give you two ways to weigh these that neither side has stated yet.",
+      "rationale": "総括で初出だが、新しい Plan・Advantage・Attack ではなく、既出の AD1・AD2・DA1・DA2 を比べるための観点（可逆性・被害を受ける範囲）である。条項 4.2.2 は「双方の議論をより深い角度から比較するような言及」を正当な比較として扱い、無視してはならないと定める。",
+      "discriminators": [
+        "新しい Plan / Advantage / Disadvantage を追加していない",
+        "相手の証明への新しい攻撃を加えていない",
+        "参照しているのはすべて既出の AD1・AD2・DA1・DA2",
+        "新しい証拠資料を伴わない",
+        "「どちらが上回るか」を論じている"
+      ],
+      "pairedWith": "V1"
+    },
+    {
+      "id": "T2",
+      "expected": false,
+      "wouldBeType": "premature_rebuttal",
+      "stageNo": 7,
+      "difficulty": "high",
+      "cue": "Mr. Rui said in his constructive that our exchange benefit cannot be measured, and therefore cannot be weighed. I answer that here.",
+      "referencedStageNo": 3,
+      "rationale": "条項 2.1.4 の例外。否定立論③にアタックに該当するものが議論されていた場合、肯定アタック⑦でそこへ反論することは許される。参照先が⑤ではなく③であることが判別の鍵。",
+      "pairedWith": "V10"
+    },
+    {
+      "id": "T3",
+      "expected": false,
+      "wouldBeType": "evidence_incomplete",
+      "stageNo": 1,
+      "difficulty": "medium",
+      "evidenceId": "E3",
+      "cue": "Professor Chen, a tourism economist at the University of Meridia, states that a ten percent increase in arrivals would create four thousand new jobs",
+      "rationale": "専門家の証言に必要な氏名と肩書・権威の両方を述べている（条項 3.2.1）。同じスピーチ内の V6 は欠落しているため、引用ごとに独立して判定できるかを測る。",
+      "pairedWith": "V6"
+    },
+    {
+      "id": "T4",
+      "expected": false,
+      "wouldBeType": "over_word_limit",
+      "stageNo": 1,
+      "difficulty": "medium",
+      "measured": { "words": 592, "limit": 600, "wpm": 148.0, "rateLimit": 150 },
+      "rationale": "600語未満かつ150 wpm 未満。閾値の直下に置いてあり、語数の数え方（名乗りを含めるか、記号を語として数えるか）がずれると誤検出する。"
+    }
+  ],
+  "measurement": {
+    "recallTarget": 0.9,
+    "recallBasis": "violations の expected:true が 11 件（V3b を含む）。9件以上の検出で 0.9 を満たす。",
+    "precisionRule": "traps の 4 件でフラグを立てたら誤検出。誤検出ゼロが合格条件。",
+    "note": "違反だけのデータセットでは Recall しか測れず、「すべてにフラグを立てる」検出器が Recall 1.0 を取る。罠 4 件はそれを防ぐためにある。特に V1/T1（⑫と⑪）と V10/T2（⑦の中）は、単純な規則では区別できないよう設計してある。"
+  }
+}

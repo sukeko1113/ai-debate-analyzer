@@ -29,7 +29,7 @@
 | M3 | ジョブ | 状態遷移、冪等性、部分再実行 | 同じ冪等キーで二度実行しても結果が変わらない |
 | M4 | アンカー照合 | 合成fixtureでの時刻誤差 | 中央値0.5秒以内。被覆率0.6未満なら書き換えなし |
 | M5 | ステージ推定 | 境界誤差とステージ誤分類 | 誤差2秒以内、**誤分類ゼロ** |
-| M6 | ルール検査 | 9種フラグのPrecision / Recall | Recall 0.9以上。Precisionは記録し人が判断 |
+| M6 | ルール検査 | 9種フラグのPrecision / Recall | **Recall 0.9以上**（違反10件中9件以上）＋ **罠4件で誤検出ゼロ**。Precisionの値も記録する |
 | M7 | Issue抽出 | AD/DAラベル一致、role抽出 | 一致率を記録（回帰で下がったら失敗） |
 | M8 | Flowリンク | `ATTACKS`→Claim、`DEFENDS`→Attackの一致率 | 同上 |
 | M9 | 判定の対称性 | AFF/NEG反転入力（`gold-01-mirror`） | **判定が対称に反転すること** |
@@ -157,7 +157,48 @@ M9のため、Gold Dataset から **ADとDAを入れ替えた反転版 `gold-01-
 Phase Aでは **AD1 と DA1 だけ**を使う。AD2 / DA2 と RuleFlag の正解データは
 Gold Datasetに含めておくが、検証はPhase B（P14 / P15）で行う。
 
-### 4.4 v05で追加する正解データ
+### 4.4 違反10件と罠4件（v05.1で確定）
+
+**違反だけを仕込んだデータセットでは Recall しか測れない。**
+「すべてにフラグを立てる」検出器が Recall 1.0 を取ってしまう。
+したがって Gold Dataset には、**違反に見えるが違反ではないもの**を併せて仕込む。
+
+#### 違反10件（検出すべきもの）
+
+| # | type | 場所 | 仕込み方 | 難度 |
+| --- | --- | --- | --- | --- |
+| 1 | `new_argument` | ⑫ NEG Summary | AD1への新しい攻撃。⑤には無かったもの | 高 |
+| 2 | `extra_issue` | ① AFF Constructive | Advantageを3つ出す | 中 |
+| 3 | `over_word_limit` | ③ NEG Constructive | 640語 | 低 |
+| 4 | `over_speech_rate` | ⑤ NEG Attack | 3分で500語＝167 wpm | 低 |
+| 5 | `speaker_role_mismatch` | ⑥ AFF Questions | A3の担当をA2が話す | 低 |
+| 6 | `evidence_incomplete` | ① 観光庁統計 | 年度を言わない | 中 |
+| 7 | `evidence_incomplete` | ⑤ Alvarez医師 | 肩書を言わない | 中 |
+| 8 | `own_calculation` | ① AD1 Importance | 独自計算を宣言せず、元データも読み上げない | 中 |
+| 9 | `over_time` | ⑨ AFF Defense | ベル後15秒話し続ける | 低 |
+| 10 | `premature_rebuttal` | ⑦ AFF Attack | ⑤否定アタックへの再反論を先走る | 高 |
+
+10件にした理由は、**Recall 0.9 という閾値が意味を持つようにする**ため。
+5件だと 5/5 = 1.0 か 4/5 = 0.8 しかなく、0.9 が閾値として機能しない。
+
+#3 は 640語 ÷ 4分 = 160 wpm なので `over_speech_rate` も同時に立つ。
+**1つの欠陥が2つのフラグを生むのは実際の試合でも起きる**ので、正解データに両方を記録する。
+
+#### 罠4件（検出してはいけないもの）
+
+| # | 内容 | 期待する動作 | 根拠 |
+| --- | --- | --- | --- |
+| T1 | ⑪ AFF Summaryで、既出論点のより深い比較を出す | `new_argument` を出さない | 条項4.2.2（正当な比較） |
+| T2 | ⑦ AFF Attackで、③否定立論に含まれていたアタック相当への反論 | `premature_rebuttal` を出さない | 条項2.1.4（例外） |
+| T3 | ①で出典・年度・肩書を完備した引用 | `evidence_incomplete` を出さない | 条項3.2.1 |
+| T4 | ① AFF Constructiveを592語にする | `over_word_limit` を出さない | 条項2.1.10 |
+
+**T2が最も効く。** ⑦には本物の違反（#10・⑤への再反論）と正当な例外（T2・③内のアタックへの反論）を
+**両方**入れる。区別できるかを測る。
+
+---
+
+### 4.5 v05で追加する正解データ
 
 Gold Dataset に次を含める。すでに原稿を書いていれば、追記で足りる。
 
