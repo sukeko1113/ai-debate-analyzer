@@ -9,7 +9,7 @@ ai-debate-analyzer: HEnDA方式の英語ディベート試合（音声・動画�
 **人間ジャッジが何を聞き、どの議論を追い、なぜその判定に至ったかを、再現可能な形にすること**である。
 AIは候補を出すだけで、確定するのは人間。
 
-正本は `docs/BASIC_DESIGN_v03.md`。実装前に必ず読むこと。
+正本は `docs/BASIC_DESIGN_v05.md`。実装前に必ず読むこと。
 
 ---
 
@@ -145,7 +145,7 @@ AIは候補を出すだけで、確定するのは人間。
 
 | ファイル | 内容 |
 | --- | --- |
-| `docs/BASIC_DESIGN_v04.md` | 正本。全体設計 |
+| `docs/BASIC_DESIGN_v05.md` | 正本。全体設計 |
 | `docs/HENDA_RULESET.md` | 大会ルールの条項と機械可読化の対応 |
 | `docs/DATA_MODEL.md` | テーブル定義と制約 |
 | `docs/TRANSCRIPTION.md` | 4パス構成（Pass A / S / B / C）とprovider契約 |

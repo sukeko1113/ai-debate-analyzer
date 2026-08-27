@@ -1,0 +1,72 @@
+{
+  "$id": "https://github.com/sukeko1113/ai-debate-analyzer/schemas/register-media-req.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sourceSha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "durationMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "mime": {
+      "type": "string",
+      "enum": [
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/wav",
+        "audio/x-m4a"
+      ]
+    },
+    "bitrate": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "channels": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "origin": {
+      "type": "string",
+      "enum": [
+        "upload",
+        "extracted_in_browser",
+        "imported"
+      ]
+    },
+    "storagePath": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "sourceSha256",
+    "durationMs",
+    "mime",
+    "bitrate",
+    "channels",
+    "origin",
+    "storagePath"
+  ]
+}

@@ -80,7 +80,7 @@ USING (EXISTS (
 
 | 原則 | 内容 |
 | --- | --- |
-| 不変 | `media_sources`, `align_words` は作成後に更新しない（削除時の伏せ字化を除く） |
+| 不変 | `media_sources`, `align_words` は作成後に更新しない（削除時の伏せ字化と、**削除後の再アップロードによる復活**を除く。§3） |
 | 分離 | AI出力（`*_runs`）と人間の確定（`*_decisions`）を別テーブルにする |
 | 追記 | `edit_logs` は INSERT のみ。UPDATE / DELETE をトリガで拒否する |
 | 二列 | AI出力は `*_ai`、人手は `*_human`。表示は `COALESCE(human, ai)` |
@@ -227,9 +227,61 @@ WITH CHECK (actor_id = public.app_actor_id() AND role = 'owner'
 
 ### `media_sources`
 `id`, `match_id`, `storage_path`（A削除時 null）, `source_sha256`, `duration_ms`,
-`mime`, `bitrate`, `channels`, `origin`, `purged_at`, `created_at`
+`mime`, `bitrate`, `channels`, `origin`, `uploaded_by`, `purged_at`, `created_at`
 
 UNIQUE(`match_id`, `source_sha256`)。**URLは保存しない。**
+署名URLは毎回発行する（`API_SPEC.md` §2）。
+
+`mime` は4値のみ（`audio/mpeg` / `audio/mp4` / `audio/wav` / `audio/x-m4a`）。
+CHECK で担保する。動画の mime を登録する経路は持たない（`TRANSCRIPTION.md` §7.1）。
+
+#### `uploaded_by` を持つ理由
+
+`edit_logs` にも actor は残るが、**行そのものに残す**。
+誰が上げた音声かは、許諾の確認や削除の判断で効く。ログを掘らずに引けることに価値がある。
+
+`uploaded_by` は **保持レベルC（氏名の匿名化）の対象である**。
+`actor_id` は氏名ではないが、`match_members` を引けば人に辿れる
+（`PRIVACY_RETENTION.md` §4）。
+
+#### `lock_version` を持たない理由
+
+§0.3 は「`lock_version` を持つ全エンティティの更新は `expectedVersion` を必須とする」と定めるが、
+**`media_sources` は `lock_version` を持たない**（§1.1 の一覧にも入っていない）。漏れではない。
+
+更新経路は次の2つだけである。
+
+1. retention の purge（`storage_path = null`、`purged_at` を立てる）
+2. purge 後の再アップロードによる復活（`storage_path` を入れ直し、`purged_at` を null に戻す）
+
+**どちらも `purged_at` の有無で構造的に分岐する。** 通常の編集経路が無いため、
+「読んでから書くまでの間に他人が書き換えた」という競合が起きない。楽観ロックの出番がない。
+
+同時 restore（同じ purged 行に対する二つの `POST /media`）は、
+`UPDATE ... WHERE purged_at IS NOT NULL` が**後発側で0行になる**ことで吸収される。
+0行になった側は `already_exists` を返す（`API_SPEC.md` §2.2）。
+先に SELECT してから UPDATE する形にすると、この競合を防げない。
+
+#### RLS
+
+`match_access` を**直接参照する**。`matches` を経由すると2段になり、読みにくいうえに
+ポリシー式の中の副問い合わせにも RLS が効くため、条件が増える（§2.1「再帰させない」）。
+
+```sql
+ALTER TABLE media_sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE media_sources FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY media_sources_select_member ON media_sources FOR SELECT TO app_server
+USING (EXISTS (
+  SELECT 1 FROM match_access ma
+  WHERE ma.match_id = media_sources.match_id
+    AND ma.actor_id = public.app_actor_id()
+));
+```
+
+INSERT / UPDATE も同じ `EXISTS` 条件で書く。**`viewer` を書けなくするのはアプリ側**
+（`auth: 'match:write'` → `accessDenial`）である。DB のポリシーは
+`match_access` に行があるかどうかまでしか見ない。役割による読み書き分離は共有段階で入れる（§11）。
 
 ### `imports`
 `id`, `match_id`, `kind`(`whosaid_json`), `schema_version`（**5以外は拒否**）,

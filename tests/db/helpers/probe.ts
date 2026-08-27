@@ -127,6 +127,6 @@ export async function assertTenantIsolation(sql: Sql, table: string): Promise<vo
  */
 export async function truncateMatchTables(sql: Sql): Promise<void> {
   await sql.unsafe(
-    `TRUNCATE TABLE edit_logs, match_members, match_access, matches, api_idempotency_keys CASCADE`,
+    `TRUNCATE TABLE edit_logs, media_sources, match_members, match_access, matches, api_idempotency_keys CASCADE`,
   );
 }

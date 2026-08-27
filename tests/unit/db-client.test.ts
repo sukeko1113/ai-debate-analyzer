@@ -8,9 +8,11 @@
  * - supabase-js を DB アクセスに使っていないこと。
  * - クラウドセッションから実 Supabase へ接続しないこと。
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { findSupabaseJsOffenders } from "../../scripts/lib/supabase-imports";
 import {
   POSTGRES_OPTIONS,
   assertNotRealDatabaseFromCloudSession,
@@ -72,38 +74,50 @@ describe("クラウドセッションからの接続先", () => {
 
 /**
  * supabase-js は Storage と Auth 専用。DB アクセスに使わない
- * （DATA_MODEL.md §0.1）。ブラウザから DB へ到達する経路を、設定ではなく構成で断つ。
+ * （DATA_MODEL.md §0.1 / ACCEPTANCE.md M35）。
+ * ブラウザから DB へ到達する経路を、設定ではなく構成で断つ。
  */
-const SUPABASE_JS_ALLOWED_DIRS = ["packages/core/src/storage", "packages/core/src/auth"];
-
-function sourceFiles(dir: string, acc: string[] = []): string[] {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (["node_modules", ".next", "dist", "build"].includes(entry.name)) continue;
-      sourceFiles(full, acc);
-    } else if (/\.(ts|tsx|mts|cts)$/.test(entry.name)) {
-      acc.push(full.split(path.sep).join("/"));
-    }
-  }
-  return acc;
-}
-
-describe("supabase-js の用途", () => {
+describe("M35 supabase-js の用途", () => {
   it("Storage / Auth 以外から import されていない", () => {
-    const roots = ["app", "packages", "scripts"].filter((d) => {
-      try {
-        return statSync(d).isDirectory();
-      } catch {
-        return false;
-      }
-    });
-    const offenders = roots
-      .flatMap((d) => sourceFiles(d))
-      .filter((file) => readFileSync(file, "utf8").includes("@supabase/supabase-js"))
-      .filter((file) => !SUPABASE_JS_ALLOWED_DIRS.some((allowed) => file.startsWith(allowed)));
+    expect(findSupabaseJsOffenders()).toEqual([]);
+  });
 
-    expect(offenders).toEqual([]);
+  it("検査が空回りしていない（違反を置けば検出される）", () => {
+    // 「常に [] を返す関数」でも上の検査は通ってしまう。
+    // 実際に違反を作って、検出されることを確かめる（ACCEPTANCE.md §1.1）
+    const dir = mkdtempSync(path.join(tmpdir(), "supabase-import-check-"));
+    try {
+      const offender = path.join(dir, "db-access.ts");
+      writeFileSync(offender, 'import { createClient } from "@supabase/supabase-js";\n', "utf8");
+      const found = findSupabaseJsOffenders([dir], ["packages/core/src/storage"]);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain("db-access.ts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("許可ディレクトリの中なら検出されない", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "supabase-import-check-"));
+    try {
+      const allowedDir = path.join(dir, "storage");
+      mkdirSync(allowedDir);
+      writeFileSync(
+        path.join(allowedDir, "signer.ts"),
+        'import { createClient } from "@supabase/supabase-js";\n',
+        "utf8",
+      );
+      expect(findSupabaseJsOffenders([dir], [`${dir.split(path.sep).join("/")}/storage`])).toEqual(
+        [],
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("実際に Storage 層は supabase-js を使っている（検査の対象が存在する）", () => {
+    const signer = readFileSync("packages/core/src/storage/supabase.ts", "utf8");
+    expect(signer).toContain("@supabase/supabase-js");
   });
 
   it("DB 経路のモジュールは postgres.js だけを使う", () => {

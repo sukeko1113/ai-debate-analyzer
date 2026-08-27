@@ -215,15 +215,21 @@ queued ──> running ──> succeeded
 | 項目 | 規約 |
 | --- | --- |
 | 必須入力 | **音声**（mp3 / m4a / wav）。動画は任意の付随情報 |
+| 受け付ける mime | `audio/mpeg` / `audio/mp4` / `audio/wav` / `audio/x-m4a` の4値のみ |
 | ビットレート | **mono・64〜96 kbps** を推奨 |
 | サイズ上限 | **50 MB**（Supabase Freeのグローバル上限が50MBを超えられないため） |
-| アップロード | 6MB超は **TUS resumable upload**。直接ストレージホストを使う |
+| アップロード | **大きさによらず常に TUS resumable upload**（理由は §7.3） |
 | 動画からの抽出 | **ブラウザ内 ffmpeg.wasm**。サーバにffmpegを置かない |
-| 保管 | 非公開バケット `media/{match_id}/{sha256}.{ext}` |
+| 保管 | 非公開バケット `media`、パスは `{match_id}/{sha256}.{ext}`（§7.3） |
 | 再生 | 短命の署名URL（既定15分）をサーバが都度発行。DBにURLを保存しない |
 
 42分の目安: mono 64kbps ≒ 20MB / mono 96kbps ≒ 30MB / stereo 128kbps ≒ 40MB。
 動画（720p）は300MB〜1GBになるためFreeプランでは通らない。
+
+**mime は申告値であり、内容の検証は行わない。**
+実際の形式が違っても、この段階では検出しない。
+Pass A で音声として読めなければ、そこで失敗する。
+入口で中身を確かめるにはサーバでデコードする必要があり、それは「サーバにffmpegを置かない」に反する。
 
 ### 7.1 ffmpeg.wasm の注意
 
@@ -231,7 +237,20 @@ queued ──> running ──> succeeded
 - 対応する入力サイズは2GB未満。超える場合はユーザー側で音声を書き出してもらう。
 - 抽出に失敗したら音声ファイルの直接指定へ誘導する。**サーバ側でのフォールバック変換はしない。**
 
+**動画からブラウザ内で抽出した音声も、4つの音声 mime のいずれかで登録する。**
+動画の mime を `media_sources` に登録する経路は持たない。
+`origin: 'extracted_in_browser'` が、抽出由来であることを示す。
+
+**元動画そのものを保管するかは Phase B の話である。**
+`PRIVACY_RETENTION.md` の保持レベルAは「音声・動画」と書いてあるが、
+Phase A（P3）で扱うのは音声だけである。抽出UIも P3 では作らない。
+
 ### 7.2 区間再生
+
+**これは P10（Transcript Review UI）の仕様である。P3 の画面Bでは実装しない。**
+P3 の時点では `stage_segments` も `transcript_segments` も存在せず、
+「区間」の元データが無い。UI だけ先に作ると、動かせないものが残る。
+P3 の画面Bに要るのは、ファイルを選ぶ・進捗が見える・上がったものを再生できる（単純な再生）の3つだけである。
 
 whosaid-editor の操作感を踏襲するが、実装はブラウザ標準のメディア要素で行う。
 
@@ -241,3 +260,84 @@ whosaid-editor の操作感を踏襲するが、実装はブラウザ標準の�
 | 前後の確認 | 「5秒前から」「この先30秒」 |
 | キーボード | Space=再生停止 / ↑↓=区間移動 / Tab=未確認の次へ / Ctrl+S=保存 |
 | 再生速度 | 0.75 / 1.0 / 1.25 / 1.5（既定1.0） |
+
+---
+
+### 7.3 Storage の構成（P3で確定）
+
+**ここが第二のセキュリティ境界である。** ブラウザが Storage へ直接送る以上、
+DBのRLSとは別に、Storage 側でも「誰が書けるか」を決めておく必要がある。
+
+| 項目 | 規約 |
+| --- | --- |
+| バケット | `media`（単一・**非公開**）。パスの接頭辞ではなくバケット名である |
+| バケット内のパス | `{match_id}/{sha256}.{ext}` |
+| 拡張子 | mime から決める。`audio/mpeg → mp3` / `audio/wav → wav` / `audio/mp4 → m4a` / `audio/x-m4a → m4a` |
+| ホスト | `NEXT_PUBLIC_SUPABASE_STORAGE_URL`（`https://<project-ref>.storage.supabase.co`） |
+| アップロード | 署名付きアップロードトークン方式。**ブラウザに anon key での書き込み権限を与えない** |
+| Storage 側のポリシー | **誰も直接書けない**が既定。認可はサーバの署名発行時点で行う（matchのメンバーか） |
+| チャンクサイズ | **6MB固定**（変更禁止。下記） |
+
+#### 常に TUS を使う（大きさで経路を分けない）
+
+Supabase の公式ドキュメントは「6MB超は TUS resumable upload を推奨」としている。
+本件はそれに従うのではなく、**大きさによらず常に TUS を使う**。
+
+理由は、**署名トークン方式と直結ホストが TUS 側にしかない**ためである。
+標準アップロードと二経路を持つと、認可の形が二つになり、テストも二重になる。
+50MB以下という上限があるので、常に TUS でも困らない。
+
+> **後から標準アップロードを足したくなった人へ。**
+> 上の判断を読んでから決めること。「小さいファイルは標準の方が速い」は理由になるが、
+> そのとき認可の形が二つになることを引き受けるかどうかが論点である。
+
+#### 認可の流れ
+
+1. ブラウザがファイル全体を読み、SHA-256 を計算する（Web Crypto）
+2. `POST /media/upload-intent`（`match:write`）。**サーバがここで認可する**
+3. サーバが service role で署名トークンを発行し、パスとともに返す
+4. ブラウザが TUS でアップロードする。トークンは **`x-signature` ヘッダ**に載せる
+5. `POST /media`（`match:write`）で登録する
+
+- **SHA-256 は「ストリーミング計算」ではない。**
+  Web Crypto に逐次更新の API は無く（`crypto.subtle.digest` は入力全体を受け取る）、
+  自前実装は「暗号処理を手書きしない」より優先する理由が無い。
+  入力が **50MB 以下と決まっているから**全体を読んでいる
+  （`packages/core/src/media/sha256.ts`）。**サイズ上限を上げるときは、ここも見直すこと。**
+  上限が無ければこの判断は成り立たない。
+- **エンドポイントは `{NEXT_PUBLIC_SUPABASE_STORAGE_URL}/storage/v1/upload/resumable`。**
+  `{project-ref}.supabase.co` ではなく `{project-ref}.storage.supabase.co` を使う
+  （公式: 大きなファイルでは直結ホストを使うこと）。
+- **チャンクサイズは 6MB 固定。** 公式に `it must be set to 6MB (for now) do not change it` とある。
+  定数は `packages/core/src/storage/` に1箇所だけ置く。
+- 署名トークンの**有効期間は2時間に固定**されており、指定する引数がない。
+  `expiresAt` は「発行時刻＋2時間」を返しているだけである（`API_SPEC.md` §2.3）。
+- TUS が払い出すアップロード固有URLの有効期間は最大24時間。トークンの2時間とは別の時計である。
+- `upsert` は**トークン発行時に焼き込まれる**。したがってサーバが決める。
+  新規は `false`、`purged_at` 入りの行の再アップロードだけ `true`（`API_SPEC.md` §2.2）。
+
+出典:
+[Resumable Uploads](https://supabase.com/docs/guides/storage/uploads/resumable-uploads) /
+[Standard Uploads](https://supabase.com/docs/guides/storage/uploads/standard-uploads) /
+[storage-js `createSignedUploadUrl`](https://github.com/supabase/storage-js/blob/master/src/packages/StorageFileApi.ts)
+
+#### 未確認（実 Supabase でしか確かめられない）
+
+- 署名トークンでのアップロードが、バケットのポリシー（「誰も直接書けない」）を**迂回するか**。
+  ドキュメントの "Signed upload URLs can be used to upload files to the bucket
+  **without further authentication**" と、認可をトークン発行時に行う設計からは迂回する読みである。
+  **迂回する前提で実装し、`ACCEPTANCE.md` H5 として人が確かめる。**
+  もし 403 になったら、**ポリシーを緩めず報告する**。
+- `x-signature` 方式のとき、オブジェクトの `owner` に何が記録されるか。
+
+#### バケットの作成（人手・実 Supabase 側）
+
+リポジトリからは作れない。Supabase の画面で次のとおり作る。
+
+| 設定 | 値 |
+| --- | --- |
+| Name | `media` |
+| Public bucket | **オフ**（非公開） |
+| Restrict file upload size | 有効・**50 MB** |
+| Allowed MIME types | `audio/mpeg`, `audio/mp4`, `audio/wav`, `audio/x-m4a` |
+| RLS ポリシー | **作らない**（誰も直接読み書きできない状態が既定） |

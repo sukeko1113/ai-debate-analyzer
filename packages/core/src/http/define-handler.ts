@@ -74,8 +74,18 @@ export interface DefineHandlerOptions<P, B, T> {
   requireExpectedVersion?: boolean;
   /** 副作用のある POST は必須（API_SPEC.md §0.4） */
   idempotency?: "required" | "off";
-  /** match を特定する方法。既定は params.id */
-  matchIdFrom?: (params: P) => string;
+  /**
+   * match を特定する方法。既定は `params.id`。
+   *
+   * `/media/{id}` のように id が match でないエンドポイントでは必ず渡すこと。
+   * 渡し忘れると「match id を特定できません」の 500 になる。
+   *
+   * **tx を受け取れる。** id から表を引かないと match が分からない場合に使う。
+   * この時点では認可がまだ済んでいないが、クエリは `SET LOCAL app.actor_id` 済みの
+   * トランザクション上を走るので RLS が効く。見えない行は引けず、
+   * 呼び出し側が 404 に倒せる（403 にすると存在が漏れる）。
+   */
+  matchIdFrom?: (params: P, tx: TransactionSql) => string | Promise<string>;
   handler: (ctx: HandlerContext<P, B>) => Promise<HandlerResult<T>>;
 }
 
@@ -232,7 +242,7 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
 
         // 認可。RLS が一重目、これが二重目（403 と 404 の書き分け）
         if (auth !== "authenticated") {
-          const matchId = matchIdFrom(parsedParams);
+          const matchId = await matchIdFrom(parsedParams, tx);
           if (!matchId) throw new ApiError("INTERNAL", "match id を特定できません");
           await assertMatchAccess(tx, matchId, AUTH_TO_ACCESS[auth]!);
         }

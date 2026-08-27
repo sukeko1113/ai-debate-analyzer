@@ -1,0 +1,38 @@
+{
+  "$id": "https://github.com/sukeko1113/ai-debate-analyzer/schemas/upload-intent-req.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "byteSize": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 52428800
+    },
+    "mime": {
+      "type": "string",
+      "enum": [
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/wav",
+        "audio/x-m4a"
+      ]
+    },
+    "sourceSha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "filename",
+    "byteSize",
+    "mime",
+    "sourceSha256"
+  ]
+}

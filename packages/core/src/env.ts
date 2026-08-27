@@ -51,6 +51,16 @@ export const envSchema = z.object({
   SUPABASE_JWT_SECRET: z.string().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  /**
+   * TUS の直結ホスト（TRANSCRIPTION.md §7.3）。`https://<project-ref>.storage.supabase.co`。
+   *
+   * **NEXT_PUBLIC_SUPABASE_URL から文字列操作で組み立てない。**
+   * `.supabase.co` を `.storage.supabase.co` に置換する形にすると、
+   * Supabase がホスト構成を変えたときに静かに壊れる。別の値として持つ。
+   */
+  NEXT_PUBLIC_SUPABASE_STORAGE_URL: z.url().optional(),
+  /** メディアの保管先バケット。非公開・単一（TRANSCRIPTION.md §7.3） */
+  SUPABASE_STORAGE_BUCKET: z.string().default("media"),
 
   // --- 転写（P5・P8。デスクトップまたは CI でのみ設定する） ---
   TRANSCRIBE_A_PROVIDER: z.string().default("stub"),

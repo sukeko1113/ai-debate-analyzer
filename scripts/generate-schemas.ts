@@ -31,6 +31,7 @@ import {
   PatchMatchReq,
   PutMembersReq,
 } from "../packages/core/src/schema/match";
+import { MediaSource, RegisterMediaReq, UploadIntentReq } from "../packages/core/src/schema/media";
 
 interface Entry {
   /** 出力ファイル名（schemas/ 配下） */
@@ -80,6 +81,21 @@ const REGISTRY: Entry[] = [
     file: "put-members-req.schema.json",
     schema: PutMembersReq,
     id: `${ID_BASE}/put-members-req.schema.json`,
+  },
+  {
+    file: "media-source.schema.json",
+    schema: MediaSource,
+    id: `${ID_BASE}/media-source.schema.json`,
+  },
+  {
+    file: "upload-intent-req.schema.json",
+    schema: UploadIntentReq,
+    id: `${ID_BASE}/upload-intent-req.schema.json`,
+  },
+  {
+    file: "register-media-req.schema.json",
+    schema: RegisterMediaReq,
+    id: `${ID_BASE}/register-media-req.schema.json`,
   },
 ];
 
