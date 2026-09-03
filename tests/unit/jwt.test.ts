@@ -2,7 +2,7 @@
  * JWT 検証（API_SPEC.md §0.2 / packages/core/src/auth/jwt.ts）。
  *
  * 実 Supabase が発行したトークンでの疎通は、クラウドセッションに鍵を置けないため
- * 検証していない（DEV_ENVIRONMENTS.md §3）。ここで確かめているのは
+ * 検証していない（DEV_ENVIRONMENTS.md §5）。ここで確かめているのは
  * 自前で署名したトークンに対する検証器の挙動である。
  */
 import { describe, expect, it } from "vitest";

@@ -3,7 +3,7 @@
  *
  * 必須／任意の別は問わない。クラウドセッションに置けない変数（Supabase のキー、
  * 転写プロバイダのキー）は optional にしてあるが、.env.example には列挙する
- * （DEV_ENVIRONMENTS.md §3 / BASIC_DESIGN_v04 §4.4）。
+ * （DEV_ENVIRONMENTS.md §5 / BASIC_DESIGN_v04 §4.4）。
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";

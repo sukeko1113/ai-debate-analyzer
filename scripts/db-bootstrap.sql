@@ -38,3 +38,11 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name')
 
 SELECT format('GRANT CONNECT ON DATABASE %I TO app_server', :'db_name')
 \gexec
+
+-- DB が先に存在した場合（Docker の POSTGRES_DB= で作った、など）、上の CREATE DATABASE は
+-- WHERE NOT EXISTS で飛ぶ。その DB の所有者は app_migrator ではないので、
+-- マイグレーションの CREATE SCHEMA IF NOT EXISTS "drizzle" が DB への CREATE 権限を持たず落ちる。
+--   実測: PostgresError: permission denied for database debate_dev / code 42501
+-- DB を app_migrator 所有で作った経路（クラウド・CI）では、所有者が既に持っているので no-op。
+SELECT format('GRANT CREATE ON DATABASE %I TO app_migrator', :'db_name')
+\gexec

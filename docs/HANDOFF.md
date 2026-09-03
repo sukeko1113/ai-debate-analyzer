@@ -723,3 +723,120 @@ TASKS.md P3 は「Web Crypto で SHA-256 をストリーミング計算」と書
 - `check-no-real-data` の上限は **5MB のまま**変えていない。CI で使う音声は実行時に生成する
   （`app/dev/media-probe/silent-wav.ts` と同じ考え方）。
   Gold Dataset の `gold-01.mp3`（約20MB）を置くときに、上限の扱いを別途決めること。
+
+---
+
+## ローカル環境への移行で分かったこと（P3 完了後・P4 着手前）
+
+開発環境をクラウドセッションから **ローカル（WSL2 上の Ubuntu）** へ移したときに、
+実際に踏んだことと、それに対して本ブランチ（`chore/local-dev-environment`）で直したこと。推測は含まない。
+確認した環境: Linux 6.18 (microsoft-standard-WSL2) / Node v22.23.2 / Docker の `postgres:16`
+（PostgreSQL 16.15 Debian）/ vitest 4.1.11。ホストに `psql` と `pg_isready` は**無い**。
+
+移行の結果、**主たる実行場所はローカル、クラウドセッションは補助**になった
+（判断: 2026-09-03、ユーザー。`DEV_ENVIRONMENTS.md` §0、`TASKS.md` の実行場所の語彙も差し替え済み）。
+
+### 件32 `scripts/db-migrate.ts` は `.env.local` を読まない — 参考情報（対応済み）
+
+`process.env.DIRECT_URL` を直接見るだけなので、`.env.local` があっても素の `npm run db:migrate` は落ちる。
+
+```
+$ npm run db:migrate
+DIRECT_URL が未設定です。クラウドセッションでは scripts/install_pkgs.sh が .env.local を生成します。
+exit=1
+```
+
+クラウドでは `install_pkgs.sh` が値を渡していたため表面化しなかった。
+`tests/db/setup.ts` は `process.loadEnvFile(".env.local")` で読んでいるので `test:db` は通る。**migrate だけが違う。**
+
+**判断（2026-09-03・ユーザー）: `db-migrate.ts` に `.env.local` を読ませない。** 読ませると、
+ローカルの `.env.local` に本番の `DIRECT_URL` を置いた瞬間、素の `npm run db:migrate` が本番へ流れる
+（`assertNotRealDatabaseFromCloudSession` は `CLAUDE_CODE_REMOTE=true` のときしか止めない）。
+
+対応:
+- 手で叩くときの前置き `set -a && . ./.env.local && set +a && npm run db:migrate` を
+  `DEV_ENVIRONMENTS.md` §1.4 と `CLAUDE.md` に明記した
+- `install_pkgs.sh` が `.env.local` を読んで migrate を流すので、普段は人が打たない
+
+**罠（実際にこのセッションで起きた）**: 起動前のシェルで `set -a && . ./.env.local` をしていると、
+Claude Code のシェルがそれを継承して**素の `db:migrate` が通ってしまう**。
+`env -i PATH="$PATH" HOME="$HOME" bash -lc 'npm run db:migrate'` で素の環境を作ると、上のとおり exit 1 だった。
+「通った」と報告する前に、環境変数の継承を疑うこと。
+
+### 件33 手順書を読まずに手で `CREATE ROLE` した結果ハマった — 参考情報（`db-bootstrap.sql` で対応済み）
+
+**失敗の経緯。** `scripts/db-bootstrap.sql` と `scripts/db-bootstrap-schema.sql` が既にあり、
+クラウドセッション（`install_pkgs.sh`）と CI（`ci.yml` の database ジョブ）はどちらもこれを流している
+（二か所に SQL を書かないための1ファイル）。ローカルではこれを流さず、次を手で打った。
+
+```
+docker run -d --name ada-pg -e POSTGRES_PASSWORD=devonly -e POSTGRES_DB=debate_dev -p 5432:5432 postgres:16
+CREATE ROLE app_migrator / app_server（LOGIN PASSWORD 'devonly'）
+ALTER SCHEMA public OWNER TO app_migrator
+GRANT ALL ON SCHEMA public TO app_migrator
+GRANT USAGE ON SCHEMA public TO app_server
+```
+
+そのうえで `db:migrate` を流すと落ちた。
+
+```
+PostgresError: permission denied for database debate_dev
+  code: '42501'
+  routine: 'aclcheck_error'
+```
+
+`GRANT CREATE ON DATABASE debate_dev TO app_migrator` を足して通った。
+
+**原因は権限設計ではなく手順の迂回である。** マイグレーションの `CREATE SCHEMA IF NOT EXISTS "drizzle"` は
+DB への CREATE 権限を要る。`db-bootstrap.sql` は DB を `OWNER app_migrator` で作るので、
+その経路（クラウド・CI）では所有者権限で通る。`docker run -e POSTGRES_DB=debate_dev` は
+**postgres 所有の DB を先に作る**ため、`CREATE DATABASE ... WHERE NOT EXISTS` が飛び、所有者にならない。
+
+対応と実測（使い捨てコンテナ `ada-pg-verify`、ポート 55432）:
+
+- `POSTGRES_DB=debate_dev` 付きで作り、HEAD の `db-bootstrap.sql` → `db-bootstrap-schema.sql` → migrate:
+  **`42501` を再現**（`permission denied for database debate_dev`）
+- `db-bootstrap.sql` に `GRANT CREATE ON DATABASE %I TO app_migrator` を1文足して流し直し → migrate **成功**。
+  `ALTER SCHEMA public OWNER` は**打っていない**。`public` の所有者は `pg_database_owner` のままで
+  `test:db` **8ファイル102件合格**。**つまり手順で打った `ALTER SCHEMA public OWNER` は要らなかった。**
+- `POSTGRES_DB` 無しで作り、`install_pkgs.sh` に全部やらせる（白紙から）: exit 0、DB の所有者は
+  `app_migrator`、`.env.local` 生成、migrate 適用、`test:db` 8ファイル102件合格
+
+**次にローカルを立てるときは、ロールを手で作らない。** `bash scripts/install_pkgs.sh` が
+bootstrap SQL 2本を流す（ホストに `psql` が無ければ `docker exec -i ada-pg psql` で代用する）。
+`POSTGRES_DB` は渡さないのが素直だが、渡してしまっても GRANT が効くので壊れない。
+
+### 件34 `.nvmrc` が無かった — 参考情報（追加済み）
+
+`package.json` の `engines` は `">=20 <23"`、CI の `NODE_VERSION` は `"22"`。ローカルの既定は v24 で、
+範囲外のまま動きかけた（`npm ci` は警告を出すだけで止まらない）。
+
+`.nvmrc`（`22`）を追加し、`tests/unit/node-version.test.ts` で
+`.nvmrc`・`engines`・CI の `NODE_VERSION`・**いま走っている Node** の4つが揃うことを検査するようにした。
+範囲外の Node でテストを走らせると、そのテスト自体が落ちて気づける。
+
+### 件35 `install_pkgs.sh` のローカル分岐 — 参考情報（P4 以降は毎セッションこれが走る）
+
+従来は「`node_modules` が無ければ `npm ci`」だけだった。DB の準備まで見るようにした。
+
+- **コンテナを起動も作成もしない**（判断: 2026-09-03、ユーザー。SessionStart は毎セッション走るため、
+  ライフサイクルまで持たせると範囲が広すぎる）。応答が無ければ `docker start` / `docker run` の
+  完全な行を出力して `exit 0`。停止したコンテナで実測済み
+- **`.env.local` が既にあれば上書きしない**。目印を書いて3回続けて走らせ、残ることを確認した。
+  クラウド分岐は従来どおり毎回上書きする
+- 冪等。2回目以降は `[notice] schema "drizzle" already exists, skipping` が出るだけ。所要 約1秒
+- `ADA_SKIP_LOCAL_DB=1` / `ADA_PG_PORT` / `ADA_PG_CONTAINER` / `ADA_PG_DB` / `ADA_PG_SUPERPASS` で変えられる
+- `tests/unit/install-pkgs.test.ts` に「`docker run`/`docker start` を実行しない（案内文にだけ現れる）」
+  「破壊操作を含まない」「`.env.local` を上書きしない」「手で `CREATE ROLE` しない」の静的検査を足した
+
+**このブランチで検証できていないこと**: クラウド分岐の実挙動（ローカルから実行できない。共通化の
+リファクタが壊していないことは静的検査まで）。ホストに `psql` がある環境の分岐（手元には無い）。
+
+### そのほか（参考情報）
+
+- `RULESET_DEFAULT` は `.env.local` に書いたが、`envSchema` に `.default("henda-20")` があるので**必須ではない**。
+  `install_pkgs.sh` が生成する `.env.local` にも入れていない
+- `.env.local` の内容（ダミー値）: `DATABASE_URL=postgres://app_server:devonly@127.0.0.1:5432/debate_dev` /
+  `DIRECT_URL=postgres://app_migrator:devonly@127.0.0.1:5432/debate_dev` / `SUPABASE_JWT_SECRET=devonly-jwt-secret`
+- `docs/TASKS.md` の「実行場所」を「Web / デスクトップ」から「ローカル（クラウドセッションでも可）／
+  ローカル（実キー）/ CI／ローカルで実装 → 人の確認」に差し替えた。各PRの要件そのものは変えていない

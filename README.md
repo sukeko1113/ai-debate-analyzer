@@ -33,7 +33,7 @@ ai-debate-analyzer/
 │  ├─ TRANSCRIPTION.md        # 4パス構成（Pass A / S / B / C）とprovider契約
 │  ├─ API_SPEC.md             # HTTP API契約（セキュリティ境界）
 │  ├─ PRIVACY_RETENTION.md    # 保持レベルA〜Eと削除
-│  ├─ DEV_ENVIRONMENTS.md     # Web版/デスクトップ版の使い分け
+│  ├─ DEV_ENVIRONMENTS.md     # ローカル(主)/クラウドセッション(補助)の使い分け
 │  ├─ REVIEW_SEMANTICS.md     # レビュー状態の4軸。壊してはならない規則
 │  ├─ JUDGE_LOGIC.md          # Decision Chartとサーバ権威
 │  ├─ ACCEPTANCE.md           # 受け入れ基準（機械／人間）と品質ゲート
@@ -56,7 +56,7 @@ npm run typecheck          # tsc --noEmit
 npm run lint               # eslint
 npm run format             # prettier --check（docs/ と CLAUDE.md は対象外）
 npm run test:unit          # DB を必要としないテスト
-npm run test:db            # セッション内 PostgreSQL に対する RLS・権限テスト
+npm run test:db            # 手元の PostgreSQL に対する RLS・権限テスト
 npm run test:e2e           # Playwright（メディア要素の再生位置）
 npm run db:migrate         # drizzle マイグレーション（DIRECT_URL / app_migrator）
 npm run generate-schemas   # Zod → schemas/*.json（生成物。手書きしない）
@@ -65,9 +65,20 @@ npm run build              # Next.js production ビルド
 npm run check-dev-routes   # /dev/* が production ビルドに無いことの確認
 ```
 
-DB は SessionStart フック（`scripts/install_pkgs.sh`）が起動し、
-`scripts/db-bootstrap.sql` でロールとデータベースを作る。
-CI も同じ SQL を使う。**実 Supabase には接続しない**（`docs/DEV_ENVIRONMENTS.md` §2）。
+## ローカルの立ち上げ
+
+```bash
+nvm use                                                     # .nvmrc = 22
+docker run -d --name ada-pg -e POSTGRES_PASSWORD=devonly -p 5432:5432 postgres:16
+bash scripts/install_pkgs.sh                                # 依存・ロール・DB・.env.local・migrate
+npm run test:db
+```
+
+ロールとデータベースは `scripts/db-bootstrap.sql` が作る。**手で `CREATE ROLE` しない。**
+ローカル・クラウドセッション・CI の三者が同じ SQL を流す。
+`install_pkgs.sh` は SessionStart フックから毎セッション走るが、コンテナの起動・作成はしない
+（応答が無ければ復旧手順を出して終わる）。
+**実 Supabase には接続しない**（`docs/DEV_ENVIRONMENTS.md` §4）。
 
 `/dev/media-probe` は再生位置を確かめるための開発専用ページで、
 production ビルドには含まれない。

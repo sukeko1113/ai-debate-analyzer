@@ -4,7 +4,7 @@
  * - 接続は DIRECT_URL（session mode / 5432・ロール app_migrator）。
  *   transaction mode では CREATE INDEX CONCURRENTLY などが通らない。
  * - クラウドセッションからは、セッション内 PostgreSQL 以外へ接続しない。
- *   本番への適用は GitHub Actions から行う（DEV_ENVIRONMENTS.md §2.2）。
+ *   本番への適用は GitHub Actions から行う（DEV_ENVIRONMENTS.md §4.2）。
  */
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { drizzle } from "drizzle-orm/postgres-js";

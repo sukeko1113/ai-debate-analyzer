@@ -1,6 +1,6 @@
 name: CI
 
-# CI が唯一の判定者である（DEV_ENVIRONMENTS.md §8）。
+# CI が唯一の判定者である（DEV_ENVIRONMENTS.md §9）。
 # 「手元では通った」を根拠にしない。
 #
 # ここでは実 Supabase にも外部プロバイダにも接続しない。

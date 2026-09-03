@@ -89,21 +89,29 @@ AIは候補を出すだけで、確定するのは人間。
 
 ---
 
-## 実行場所（Web版 / デスクトップ版）
+## 実行場所（ローカルが主 / クラウドセッションは補助）
 
 詳細は `docs/DEV_ENVIRONMENTS.md`。ここでは守るべき点だけ。
 
-- **クラウドセッションには PostgreSQL 16 と Docker が入っている。**
-  マイグレーション、RLS、トリガー、CHECK制約は**セッション内のPostgresで検証する**。
-- **実 Supabase には接続しない。** 外向き通信はHTTP/HTTPSプロキシを通るため
-  Postgresワイヤプロトコルは届かない見込みであり、そもそも接続すべきでもない。
-  本番へのマイグレーション適用は GitHub Actions から行う。
+- **主たる開発環境はローカル（WSL2 上の Ubuntu ＋ `postgres:16` コンテナ）。**
+  マイグレーション、RLS、トリガー、CHECK制約は**手元のPostgresで検証する**。
+  クラウドセッション（セッション内 PostgreSQL 16）でも同じ検証はできるが、実キーは置けず、音は聞けない。
+- **立ち上げは `bash scripts/install_pkgs.sh`。ロールと DB を手で `CREATE ROLE` しない。**
+  `scripts/db-bootstrap.sql` が正本で、ローカル・クラウド・CI の三者が同じファイルを流す。
+  手で作ると権限が1つずつ足りない（`HANDOFF.md` 件33）。
+  `install_pkgs.sh` はコンテナを起動も作成もしない。応答が無ければ復旧手順を出して終わる。
+- **`npm run db:migrate` を手で叩くときは `set -a && . ./.env.local && set +a` を前置きする。**
+  `db-migrate.ts` は意図的に `.env.local` を読まない（本番 `DIRECT_URL` への誤爆を防ぐ）。
+- **実 Supabase には接続しない。** ローカルからは技術的に届くが、`.env.local` に実 Supabase を指す
+  `DATABASE_URL` / `DIRECT_URL` を書かない。本番へのマイグレーション適用は GitHub Actions から行う。
 - **クラウド環境の設定にシークレットを置かない。** 専用のシークレットストアがなく、
-  その環境を使う人全員から読める。実キーを要するPR（P5・P8）はデスクトップかCIで動かす。
+  その環境を使う人全員から読める。実キーはローカルの `.env.local` か CI Secrets にだけ置く。
+  だから `install_pkgs.sh` はローカルの `.env.local` を上書きしない。
 - **テーブルの所有者はRLSを素通りする。** `app_migrator` が所有し、`app_server` は `GRANT` だけ。
   同じロールにすると、RLSのテストが通ったように見えて何も検証していない状態になる。
 - 各PRの実行場所は `docs/TASKS.md` の「実行場所」に書いてある。
-  **デスクトップ指定のPRを、Webで「動いた」と報告しない。**
+  **実キーが要るPR（P5・P8）をクラウドセッションで走らせない。
+  人の確認が要るPRを、テストが緑なだけで「動いた」と報告しない。**
 
 ---
 
@@ -157,4 +165,4 @@ AIは候補を出すだけで、確定するのは人間。
 | `docs/ACCEPTANCE.md` | 受け入れ基準（機械検証／人間検証）と品質ゲート |
 | `docs/TASKS.md` | Phase A（P0〜P13・縦切り）／Phase B（P14〜P20）のPR分割と実行場所 |
 | `docs/HANDOFF.md` | **PR間の申し送り。着手前に読み、完了時に追記する** |
-| `docs/DEV_ENVIRONMENTS.md` | Web版とデスクトップ版の使い分け、クラウド環境の設定 |
+| `docs/DEV_ENVIRONMENTS.md` | ローカル（主）とクラウドセッション（補助）の使い分け、立ち上げ手順、踏んだ穴 |

@@ -3,7 +3,7 @@
  *
  * 実際の app/api/v1/... の route.ts をそのまま呼ぶ。DB も RLS も本物である。
  * Storage だけ stub に差し替える（クラウドセッションは実 Supabase に接続しない。
- * DEV_ENVIRONMENTS.md §2）。
+ * DEV_ENVIRONMENTS.md §4）。
  *
  * ここで確かめるのは M28・M29・M30・M31・M32 と、storagePath の照合である。
  * **実際にファイルが上がるか、署名がバケットのポリシーを迂回するかは確かめていない**
