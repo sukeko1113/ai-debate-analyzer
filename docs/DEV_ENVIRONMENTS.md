@@ -206,17 +206,28 @@ Claude Code on the web の各セッションは Ubuntu 24.04（x86_64）のVMで
 **`CLAUDE_CODE_REMOTE=true` のときだけ**セッション外のホストを拒む。
 ローカルには技術的な壁が無い。`.env.local` の `DATABASE_URL` / `DIRECT_URL` は
 `127.0.0.1` を指したままにし、実 Supabase を指す値は置かない。**ここは人の規律で守る。**
+`.env.local` に置いてよいキーとの区別は §5 に書いてある。
 
 ---
 
 ## 5. シークレット方針
+
+`.env.local` に置いてよいのは **HTTP で外部サービスを叩くキー**だけである。
+**Postgres の接続文字列（`DATABASE_URL` / `DIRECT_URL`）は `127.0.0.1` 固定**で、
+実 Supabase を指す値はローカルのどこにも置かない（§4.3）。
+
+区別の理由: API キーが漏れても被害はそのサービスの範囲で止まるが、
+DB の接続文字列は RLS もサーバ権威も迂回して全データに届く。
+`BASIC_DESIGN_v05.md` §4.2 が service role key を Storage と Auth に限定し DB に使わないと決めたのと同じ構造で、
+「DB へ届く経路を設定ではなく構成で塞ぐ」ための線である。
 
 | 種類 | 置き場所 |
 | --- | --- |
 | 転写プロバイダのAPIキー（Pass A / B） | GitHub Actions Secrets、または**ローカルの `.env.local`** |
 | 解析・判定支援LLMのキー | 同上 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 同上 |
-| `DIRECT_URL`（本番マイグレーション用） | GitHub Actions Secrets のみ |
+| `DATABASE_URL`（本番） | Vercel の環境変数のみ。**ローカルには置かない** |
+| `DIRECT_URL`（本番マイグレーション用） | GitHub Actions Secrets のみ。**ローカルには置かない** |
 | ローカル / セッション内 Postgres の接続情報 | ダミー値（`devonly`）。秘密ではない |
 
 **クラウド環境の設定にはシークレットを1つも置かない。** 専用のストアが無く、
