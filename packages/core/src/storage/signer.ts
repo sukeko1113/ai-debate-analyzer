@@ -11,7 +11,7 @@
  *   - `StubStorageSigner`（packages/core/src/storage/stub.ts）      … CI・テスト
  *
  * CI は stub で回す。クラウドセッションは実 Supabase に接続しない
- * （DEV_ENVIRONMENTS.md §2）。**stub で通ったことを実物で通ったと書かない。**
+ * （DEV_ENVIRONMENTS.md §4）。**stub で通ったことを実物で通ったと書かない。**
  */
 
 export interface SignedUpload {

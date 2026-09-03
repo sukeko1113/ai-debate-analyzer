@@ -7,7 +7,7 @@
  * verifySignature の差し替えが必要になる。
  *
  * 【確認できていないこと】
- * クラウドセッションには実 Supabase の鍵を置けない（DEV_ENVIRONMENTS.md §3）ため、
+ * クラウドセッションには実 Supabase の鍵を置けない（DEV_ENVIRONMENTS.md §5）ため、
  * 実 Supabase が発行したトークンでの疎通は当方では検証していない。
  * テストは自前で署名したトークンで行っている。
  *

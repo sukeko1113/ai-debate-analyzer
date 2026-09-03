@@ -24,7 +24,7 @@ export const POSTGRES_OPTIONS = {
 } as const;
 
 /**
- * クラウドセッションから実 Supabase へ接続しない（DEV_ENVIRONMENTS.md §2）。
+ * クラウドセッションから実 Supabase へ接続しない（DEV_ENVIRONMENTS.md §4）。
  * 方針を文書だけに置くと破れるので、接続時に落とす。
  */
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "postgres", "db"]);
@@ -43,7 +43,7 @@ export function assertNotRealDatabaseFromCloudSession(
   if (LOCAL_HOSTS.has(host)) return;
   throw new Error(
     `クラウドセッションからセッション外の DB (${host}) へ接続しようとしました。` +
-      `実 Supabase へは接続しません（DEV_ENVIRONMENTS.md §2）。` +
+      `実 Supabase へは接続しません（DEV_ENVIRONMENTS.md §4）。` +
       `DB の検証はセッション内の PostgreSQL 16 で行ってください。`,
   );
 }

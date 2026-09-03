@@ -1,5 +1,5 @@
 /**
- * テスト・CI 用の署名（DEV_ENVIRONMENTS.md §2）。
+ * テスト・CI 用の署名（DEV_ENVIRONMENTS.md §4）。
  *
  * クラウドセッションは実 Supabase に接続しない。CI もキーを持たない。
  * したがって**契約の検査は stub で行い、実物の確認は人が行う**
