@@ -291,8 +291,9 @@ export function defineHandler<
       const runInTx = async (tx: TransactionSql) => {
         // JWT 経路のガード。**最初のクエリより前**に置く。
         // sub がシステム actor のトークンを弾かないと、その UUID の JWT を作れる者が
-        // 全 match のジョブと編集履歴を読める（RLS がランナーとして通すため）
-        if (false as boolean) await assertNotSystemActor(tx);
+        // 全 match のジョブと編集履歴を読める（RLS がランナーとして通すため）。
+        // internal は withSystemActor が意図してその actor を設定するので対象外
+        if (auth !== "internal") await assertNotSystemActor(tx);
 
         // 再送判定はトランザクション内で行う。外に出すと、
         // 記録の直前に落ちたときに二重実行できてしまう
