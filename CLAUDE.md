@@ -9,7 +9,9 @@ ai-debate-analyzer: HEnDA方式の英語ディベート試合（音声・動画�
 **人間ジャッジが何を聞き、どの議論を追い、なぜその判定に至ったかを、再現可能な形にすること**である。
 AIは候補を出すだけで、確定するのは人間。
 
-正本は `docs/BASIC_DESIGN_v05.md`。実装前に必ず読むこと。
+正本は `docs/BASIC_DESIGN_v09.md`。実装前に必ず読むこと。
+`BASIC_DESIGN_v05.md` / `v08.md` は履歴。**分割文書（`DATA_MODEL.md` 等）と `packages/core/src/schema/` は v09 への追随が
+次の PR で行われる予定であり、それまで v09 と食い違う箇所がある。食い違ったら v09 を正とし、勝手に片方へ寄せず相談する。**
 
 ---
 
@@ -45,16 +47,35 @@ AIは候補を出すだけで、確定するのは人間。
 - **Issue key（AD1/AD2/DA1/DA2）とnode idはサーバが割り当てる。**
   AIに生成させない。生成させると重複と揺れが起き、履歴の同一性が壊れる。
 
-- **`effectiveness`（そのやりとりが効いたか）とHPバーは、判定に一切入らない。**
-  勝敗を決めるのは `judge_decisions` の Probability / Value / Strength だけ。
-  判定の集計コードから `effectiveness`・`comparison`・HPモジュールを参照しない。
+- **判定支援は三層に分かれ、混ぜない（`BASIC_DESIGN_v09.md` §3.6・§12.6）。**
+  L1 AI Decision Support（`official_decision_support`。名前に official を含むが **AI 側の表**、画面では常に「AI参考判定」）、
+  L2 Internal Analysis（`argument_node_scores` / `clash_events` / `issue_snapshots` / `scoring_config`）、
+  L3 Learning（HP・delivery）、そして **Human Ballot**（`judge_decisions` / `judge_issue_assessments_human`）。
+  - 勝敗を決めるのは Human Ballot の Probability / Value / Strength だけ。人間 Ballot の集計コードは `judge_decisions` だけを読む。
+  - AI Decision Support の計算はビュー `ai_scoring_inputs`（L2 と `scoring_config`）だけを読む。`flow_links.effectiveness_*`・`summary_links`・HP は L1 にも Human Ballot にも入らない。
+  - **AI は `judge_decisions` / `judge_issue_assessments_human` を書かない。** DB ロールで拒否する。AI 値を人間 Ballot へ自動コピーする機能は作らない。
+  - **`Strength = Probability × Value` は L2 の内部計算。** AI はカテゴリと根拠を出し、数値写像は `scoring_config` でサーバが行う。LLM に小数を出させない。
+  - `winner_suggestion = REVIEW_REQUIRED` は**正常な状態**であり、エラーでも未判定でもない。人間 Ballot のロックを機械的には止めない。
+
+- **「記録が無い」「聞き取れなかった」「応答しなかった」を混ぜない。**
+  `coverage_status ≠ complete`（記録が無い）、`audibility = unheard`（聞き取れなかった）、DROPS（応答しなかった）は別の事象で、
+  判定材料になるのは DROPS だけ。欠損ステージや unheard の区間から DROPS を導出しない。
+  欠損ステージの区間と `stage_no` が NULL の区間（自己紹介・アナウンス）は判定根拠に引けない
+  （`409 GAPPED_STAGE_CITED` / `422 NON_STAGE_SEGMENT_CITED`）。unheard を引いたままロックできない（`409 UNHEARD_CITED`）。
+
+- **判定は1ジャッジ1票。** `judge_decisions` は `UNIQUE(match_id, decided_by)`。パネル結果はビューで導出し、少数意見を消さない。
+  `Strength = None` には残存リスクの記述（`residual_note`）を必ず書かせる。判定理由の段落は根拠種別を持ち、
+  `delivery` を内容判定の理由にしたら `communication_in_content` を candidate で立てる。自動で消さない。
+
+- **provider が返した話者ラベルを保存しない。** 座席（A1〜N4）は担当者表と自己紹介の名乗りから決める。`align_words` に speaker 列を作らない。
 
 - **解析・観戦画面から `display_name` を参照しない。**
   役割と座席ラベル（A1〜N4）を主表示にする。氏名を使ってよいのは、
   試合登録画面と公式Judge Sheetの生成コードだけ。保持レベルCの匿名化が効かなくなる。
 
 - **HEnDA公式の判定語彙を数値へ置換しない。**
-  `Hi/Lo`・`Large/Small`・`Strong/Weak/None` を0〜100点に変換しない。
+  L1 の公式表示と人間 Ballot は `Hi/Lo`・`Large/Small`・`Strong/Weak/None` の語彙だけを持ち、0〜100点に変換しない。
+  比較が要るときも `STRENGTH_ORDER` の順序関係だけを使う。L2 の内部数値はここへ写さない。
   勝敗に引き分けは存在しない（`winner` は AFF か NEG の二択）。
 
 - **ルール違反は「候補」止まり。自動で判定から除外しない。**
@@ -69,11 +90,18 @@ AIは候補を出すだけで、確定するのは人間。
 
 - **スキーマの破壊的変更は一括で行う。** 散発的にフィールドを足さない。
 
+- **設計書の改訂は直前の版を複製して差分を当てる。** 古い本文から書き起こさない。
+  第13章のコード例は `packages/core/src/schema/` から写す。v08 で実装済みの Zod が巻き戻った事故を繰り返さない。
+
 ---
 
-## 環境（クラウド完結が前提）
+## 環境（製品と CI はクラウド完結・開発はローカルが主戦場）
 
-- **開発・検証・デプロイはすべてクラウドで完結する。** 特定のPCに依存する工程を作らない。
+- **「クラウド完結」は製品と CI の条件であって、開発をクラウドで行うという意味ではない**（`BASIC_DESIGN_v09.md` §1.1・§17.6）。
+  守るのは三条件：(a) 交換点は GitHub だけ（手元にしかないファイル・絶対パス・OS 固有パスをリポジトリの前提にしない）、
+  (b) CI が唯一の判定者で、Vercel が配信する（人が PC でビルドする工程を要らなくする）、
+  (c) 実行時に管理者 PC 固有の環境（ffmpeg.exe 等）を要求しない。
+  開発そのものは 2026-09-03 以降ローカル（次節）で行う。
 - Next.js（App Router）＋ TypeScript ＋ Zod ＋ Drizzle ORM / Supabase（Postgres・Storage・Auth）/ Vercel / GitHub Actions
 - **サーバにffmpegを置かない。** 音声の区間再生はブラウザ標準のメディア要素で行う。
   動画からの音声抽出が必要な場合のみ、ブラウザ内のffmpeg.wasmを使う。
@@ -137,9 +165,13 @@ AIは候補を出すだけで、確定するのは人間。
 
 - **1 PR = 1縦切り。** `docs/TASKS.md` のPR単位で進める。
   現在のPRの受け入れ基準を満たしたことを確認するまで、次のPRへ進まない。
-- **Phase A（P0〜P13）は縦切りである。** 扱うのは AD1 と DA1 だけ。
-  AD2/DA2・RuleFlag・6成果物・whosaid import はPhase Bに置いてある。
-  Phase Aの途中でそれらを実装しない。**全機能の20%ではなく、全工程を細く1本**が目的。
+- **Phase A（P0〜P13）は縦切りである。列は4 Issue ぶん先に入れ、機能は AD1 と DA1 だけで★G0 を通す。**
+  スキーマ（`node_type`・`clash_events`・`scoring_config`・`official_decision_support`・`coverage_status`・`match_events`・
+  1ジャッジ1票の制約など、`BASIC_DESIGN_v09.md` §17.2 の列挙）は後から足すと破壊的変更になるので Phase A 開始時に入れる。
+  AD2/DA2 の機能（P14）、Voting Issue counterfactual（P12.2）、Value turn Review Gate（P12.3）、Rule State Engine の全分岐（P15）、
+  パネル UI（P22）、7成果物、whosaid import は★G0 の後。Phase Aの途中でそれらを実装しない。
+  **全機能の20%ではなく、全工程を細く1本**が目的。
+- **P4 は「DB とドメインまで」。job API 6本は P4.5**（`API_SPEC.md` §3）。P5 の前に入れる。
 - 着手前に実装計画を提示し、承認を得てから手を動かす。
 - ブランチ運用: `feature/pXX-xxx` → PR → `main`。コミット履歴を保つ。
 - 実装前に、そのPRに関係する `docs/*.md` を必ず読む。
@@ -153,16 +185,18 @@ AIは候補を出すだけで、確定するのは人間。
 
 | ファイル | 内容 |
 | --- | --- |
-| `docs/BASIC_DESIGN_v05.md` | 正本。全体設計 |
+| `docs/BASIC_DESIGN_v09.md` | **正本。全体設計。** 冒頭の改訂履歴で v08 から引き継いだ点・実装から取り込んだ点・v09 で決めた点を3系統に分けている |
+| `docs/CONCEPT_DESIGN_v07.md` | コンセプト設計書。技術を外した全体像。三層と Strength=P×V の意図 |
+| `docs/BASIC_DESIGN_v05.md` / `v08.md` | 履歴。正本ではない |
 | `docs/HENDA_RULESET.md` | 大会ルールの条項と機械可読化の対応 |
-| `docs/DATA_MODEL.md` | テーブル定義と制約 |
-| `docs/TRANSCRIPTION.md` | 4パス構成（Pass A / S / B / C）とprovider契約 |
-| `docs/API_SPEC.md` | HTTP API契約。**セキュリティ境界そのもの** |
-| `docs/PRIVACY_RETENTION.md` | 保持レベルA〜Eと削除 |
+| `docs/DATA_MODEL.md` | テーブル定義と制約（列の型と CHECK の正本）。**v09 への追随は次の PR** |
+| `docs/TRANSCRIPTION.md` | 4パス構成（Pass A / S / B / C）とprovider契約、ジョブモデル |
+| `docs/API_SPEC.md` | HTTP API契約。**セキュリティ境界そのもの。エラーコードの正本（§0.5）** |
+| `docs/PRIVACY_RETENTION.md` | 保持レベルA〜Eと削除、consent_scope と保持期限の対応 |
 | `docs/REVIEW_SEMANTICS.md` | レビュー状態の4軸。壊してはならない規則 |
-| `docs/ARGUMENT_MODEL.md` | 議論の4構成要素、やりとりの効果、比較軸、HP、役割優先UI |
-| `docs/JUDGE_LOGIC.md` | Decision Chartとサーバ権威 |
+| `docs/ARGUMENT_MODEL.md` | 議論のモデル（A/B/C・Support Quality・effect_kind・比較軸・HP・役割優先UI）。**v09 への追随は次の PR**（現行は4構成要素で書かれている） |
+| `docs/JUDGE_LOGIC.md` | Decision Chartとサーバ権威。**§1.1 の L1/L2 書き分けは次の PR** |
 | `docs/ACCEPTANCE.md` | 受け入れ基準（機械検証／人間検証）と品質ゲート |
-| `docs/TASKS.md` | Phase A（P0〜P13・縦切り）／Phase B（P14〜P20）のPR分割と実行場所 |
+| `docs/TASKS.md` | Phase A（P0〜P13・縦切り）／Phase B（P14〜P20）のPR分割と実行場所。**P4.5 / P1.5 / P11.5 等の挿入は次の PR** |
 | `docs/HANDOFF.md` | **PR間の申し送り。着手前に読み、完了時に追記する** |
 | `docs/DEV_ENVIRONMENTS.md` | ローカル（主）とクラウドセッション（補助）の使い分け、立ち上げ手順、踏んだ穴 |
