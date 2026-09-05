@@ -195,10 +195,18 @@ queued ──> running ──> succeeded
 
 - **冪等キー** = `match_id` + `kind` + `target_stage_no` + `params_hash`
   同じキーのジョブが `running` または `succeeded` なら、新規作成せず既存を返す。
+  **DB側の制約は `UNIQUE NULLS NOT DISTINCT` にする。** `target_stage_no` は
+  `stage_transcribe` 以外では NULL であり、素の `UNIQUE` では重複を防げない
+  （`DATA_MODEL.md` §4）。
+- **`params_hash` はサーバが決める。** `kind` / `target_stage_no` / `ruleset_version` /
+  `provider_id` / `model` を正規化して SHA-256。リクエストから受け取らない。
 - **楽観ロック** = `lock_version`。`running` への遷移は条件付きUPDATEで行う。
 - **1ジョブ = 2〜4分の音声、または純粋計算。** Vercelの実行時間内に確実に終わる粒度。
 - 実行契機はクライアントのポーリングと Vercel Cron の**両方**。
   ブラウザを閉じても進み、開いていれば速く進む。
+  秘密を要る `/internal/jobs/run` はブラウザから叩けないため、ポーリング側には
+  `POST /matches/{id}/jobs/run` を使う。**どちらも1回の呼び出しで最大1件**
+  （`API_SPEC.md` §3.1）。
 - 失敗ジョブは**部分再実行**できる。全体をやり直さない。
 - 実行のたびに `provider_id` / `model` / 所要時間 / 実トークン量を記録する（コスト実績の突合に使う）。
 
@@ -207,6 +215,8 @@ queued ──> running ──> succeeded
 - 42分の音声を1回の同期呼び出しで処理する
 - 進捗をメモリ上だけで持つ（関数インスタンスが再利用されると消える）
 - 失敗時に人手の確認結果ごとリセットする
+- **`GET /jobs` に実行の副作用を持たせる**（リトライやプリフェッチで意図せず走る）
+- **秘密（`JOB_CRON_SECRET`）をクライアントへ出して `/internal/*` を直接叩かせる**
 
 ---
 

@@ -25,7 +25,30 @@
 | 認証 | `Authorization: Bearer <Supabase Auth JWT>` |
 | 検証 | サーバでJWTを検証し、`actor_id` を得る |
 | 認可 | `actor_id` が対象matchのメンバーであること。トランザクション内で `SET LOCAL app.actor_id` を発行し、RLSにも同じ値を渡す |
-| 内部API | `/api/v1/internal/*` は `X-Job-Secret: <JOB_CRON_SECRET>` のみ。JWTを受け付けない |
+| 内部API | `/api/v1/internal/*` は `JOB_CRON_SECRET` の照合のみ。**JWTを受け付けない**（下記） |
+
+#### 内部APIの秘密の受け取り方
+
+`/api/v1/internal/*` は、次の**どちらのヘッダでも** `JOB_CRON_SECRET` を受ける。
+
+| ヘッダ | 送り主 |
+| --- | --- |
+| `X-Job-Secret: <JOB_CRON_SECRET>` | 自前のポーラー・テスト |
+| `Authorization: Bearer <JOB_CRON_SECRET>` | Vercel Cron |
+
+**Vercel Cron は `Authorization: Bearer $CRON_SECRET` しか送れない。**
+`vercel.json` の `crons` にカスタムヘッダを書く手段が無いため、設計側が合わせる。
+
+**この経路では `Authorization` を JWT として一切解釈しない。**
+`Bearer` を見た時点で `verifySupabaseJwt` へ流す実装を混ぜないこと。
+混ぜると、内部APIが「JWTを受け付けない」境界（この表の4行目）を自分で外すことになる。
+照合は `crypto.timingSafeEqual`。長さ違いで早期 return しない。
+`JOB_CRON_SECRET` が未設定なら **500**。未設定のときに素通りさせる分岐は作らない。
+
+内部APIは match に紐づかない（全 match のジョブを跨ぐ）ため、
+`SET LOCAL app.actor_id` には **`public.system_actor_id()`** を入れる。
+この UUID の定義は SQL 関数ただ1つで、RLSポリシーもサーバのガードもそこだけを見る
+（`DATA_MODEL.md` §4.1）。**`sub` がこの値の JWT は 401 で弾く。**
 
 ### 0.3 楽観ロック（expectedVersion）
 
@@ -250,7 +273,8 @@ Supabase の署名アップロードトークンは**有効期間が2時間に�
 | `GET` | `/api/v1/matches/{id}/jobs` | `match:read` | ポーリング用 |
 | `POST` | `/api/v1/jobs/{id}/retry` | `match:write` | `failed` のみ。`matchIdFrom` が要る |
 | `POST` | `/api/v1/jobs/{id}/cancel` | `match:write` | `queued` / `running`。`matchIdFrom` が要る |
-| `POST` | `/api/v1/internal/jobs/run` | `X-Job-Secret` | Vercel Cron / ポーラーから |
+| `POST` | `/api/v1/matches/{id}/jobs/run` | `match:write` | **1回の呼び出しで最大1件**。ポーリング用の実行契機 |
+| `POST` | `/api/v1/internal/jobs/run` | 内部（§0.2） | Vercel Cron から。match を跨ぐ |
 
 ```ts
 export const CreateJobReq = z.object({
@@ -259,9 +283,35 @@ export const CreateJobReq = z.object({
 });
 ```
 
+- **`params_hash` はサーバが決める。** `kind` / `targetStageNo` / `ruleset_version` /
+  `provider_id` / `model` を正規化して SHA-256 にする。リクエストからは受け取らない。
+  受け取ると、クライアントが冪等キーを選べる＝二重実行を自分で作れることになる。
 - `kind: 'stage_transcribe'` は、**`stage_segments` が `human_confirmed` でなければ `409 STAGES_NOT_CONFIRMED`**。
   推定のまま12回呼ばせない（`TRANSCRIPTION.md` §1.2）。
 - `GET /jobs` の応答には `status` / `attempt` / `metrics`（所要時間・トークン量）を含める。
+- 同じ冪等キー（`TRANSCRIPTION.md` §6.2）のジョブが既にあれば、
+  `POST /jobs` は**新規作成せず既存を 200 で返す**。ここでは `409 JOB_ALREADY_RUNNING` を使わない。
+  `409 JOB_ALREADY_RUNNING` を返すのは、**`failed` でないジョブに `retry` を撃ったとき**である。
+- `cancel` を `succeeded` / `failed` / `canceled` に撃つと `409 JOB_ALREADY_RUNNING` ではなく
+  **`409 VERSION_CONFLICT`**（状態がもう動かせない）。エラー語彙を増やさない。
+
+### 3.1 実行契機が2本ある理由
+
+`TRANSCRIPTION.md` §6.2 は「クライアントのポーリングと Vercel Cron の**両方**」と定めている。
+ブラウザを閉じても進み、開いていれば速く進むためである。
+
+`/internal/jobs/run` は `JOB_CRON_SECRET` を要るので、**ブラウザからは叩けない**。
+秘密をクライアントへ出せば「サーバからのみ外部APIを呼ぶ」境界が消える。
+そのため、ポーリング側の実行契機として `POST /matches/{id}/jobs/run` を置く。
+
+| | 認可 | 対象 | 1回で進む数 |
+| --- | --- | --- | --- |
+| `/matches/{id}/jobs/run` | `match:write` | **その match だけ** | 最大1件 |
+| `/internal/jobs/run` | 内部（§0.2） | 全 match | 最大1件 |
+
+- **`Idempotency-Key` は要求しない。** 二重実行は `queued → running` の条件付きUPDATE
+  （`lock_version`）が防ぐ。同じ機構を二つ置くと、片方が壊れたときに気づけない（§0.4 末尾と同じ理由）。
+- **`GET /jobs` に副作用を持たせない。** リトライやプリフェッチで意図せず走る。
 
 ---
 

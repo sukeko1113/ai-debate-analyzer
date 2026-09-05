@@ -64,12 +64,26 @@ M 表に置くと、stub で通ったことを実物で通ったと読み違え�
 | **M33** | **入力規約** | mimeがenum外／`byteSize` が 50MB 超 | どちらも `400 VALIDATION_FAILED` |
 | **M34** | **SHA-256** | 既知の入力に対するハッシュ | 既知の値と一致すること |
 | **M35** | **supabase-js の隔離** | `@supabase/supabase-js` の import 元 | `packages/core/src/storage/**` と `packages/core/src/auth/**` 以外からの import があったら失敗（静的検査） |
+| **M36** | **ジョブの状態遷移** | 逆行（`succeeded`→`running`）、終了状態からの再遷移 | **DBのトリガで失敗する**。アプリの分岐を外しても通らないこと |
+| **M37** | **HTTP冪等** | 同じ `Idempotency-Key` での `POST /jobs` 再送 | 200 ＋ `Idempotent-Replay: true`。**行が増えないこと** |
+| **M38** | **DB側の冪等キー** | 同じ冪等キーでの二度目の作成、並行INSERT | 既存を 200 で返す。**`target_stage_no` が NULL の kind でも重複しない**（`NULLS NOT DISTINCT`）。23505 を捕捉 |
+| **M39** | **ジョブの認可** | 他人のジョブへの `retry` / `cancel` | **404**（403だと存在が漏れる）。`matchIdFrom` 忘れは持ち主でも404になるため正常系が回帰になる |
+| **M40** | **`transcription_jobs` のRLS** | 他人のmatchのジョブ | **アプリの認可分岐を外してもRLSで見えないこと** |
+| **M41** | **内部APIの境界** | `X-Job-Secret` / `Authorization: Bearer` の照合、システム actor | 秘密の不一致・欠落は **401**。**JWTでは通らない**。`sub` がシステム actor の JWT は **401**。`pg_policies` の式が `system_actor_id()` を参照し、**UUIDリテラルが直書きされていない** |
+| **M42** | **部分再実行** | `failed` 1件の `retry` | 他ジョブの `status` / `attempt` / `metrics` が変わらないこと |
+| **M43** | **metrics の永続化** | `succeeded` 時の `metrics` | `provider_id` / `model` / 所要時間 が行に残る（メモリ上だけに持たない） |
 
 ### 1.1 テストで手を抜かない
 
 - テストを削除して通す、`skip` する、閾値を緩めて通す、はしない。通らない理由を報告する。
-- M1・M15・M16・M18・M21・M23・M26・**M30・M32・M33** は **negative test**（「拒否されること」を確かめるテスト）である。
-- M22・M24・M25・**M35** は **静的検査**（コードの依存関係を見る）である。実行時テストでは検出できない。
+- M1・M15・M16・M18・M21・M23・M26・M30・M32・M33・**M14・M36・M40・M41** は
+  **negative test**（「拒否されること」を確かめるテスト）である。
+- M22・M24・M25・M35 は **静的検査**（コードの依存関係を見る）である。実行時テストでは検出できない。
+- **M36・M40 の negative test は、例外の検査ごとに `withActor` を開き直すか
+  `tx.savepoint()` を使う。** postgres.js のトランザクションは1つ失敗すると全体が中断し、
+  `rejects` で受けたはずの例外が外へ抜ける（`HANDOFF.md` 件13）。
+- **DBの中身を確かめるときは `app_server` 接続 ＋ `withActor`。読みも書きも。**
+  所有者接続は FORCE RLS で 0 行のまま静かに成功する（`HANDOFF.md` 件12・件27）。
 - **negative test は、守りを外したときに落ちなければ意味がない。** 一つずつ外して確かめる
   （P2 で実施した手順が `HANDOFF.md` 件22 にある）。
   正しいデータで通るだけのテストは、ルールを守れているかを検証していない。

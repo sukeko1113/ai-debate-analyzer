@@ -308,12 +308,63 @@ INSERT / UPDATE も同じ `EXISTS` 条件で書く。**`viewer` を書けなく�
 | `metrics` | jsonb | 所要時間・実トークン量・コスト実績 |
 | `error` | text | |
 
-UNIQUE(`match_id`, `kind`, `target_stage_no`, `params_hash`)
+**UNIQUE NULLS NOT DISTINCT (`match_id`, `kind`, `target_stage_no`, `params_hash`)**
+
+`NULLS NOT DISTINCT` を省略してはならない。`target_stage_no` は `stage_transcribe`
+以外では NULL であり、**Postgres の既定では NULL 同士が重複とみなされない**。
+素の `UNIQUE` にすると `align` / `stage_detect` / `anchor` は何度でも作れてしまい、
+「同じ冪等キーで二度実行しても結果が変わらない」（`ACCEPTANCE.md` M3）が
+**通ったように見えて何も守っていない**状態になる。ジョブの3/4がこれに当たる。
+
+（`NULLS NOT DISTINCT` は PostgreSQL 15 以降。本件のローカル・CI・Supabase はいずれも 16 以上。）
+
+INSERT を先に撃ち、UNIQUE違反（23505）を捕まえて既存を返す。
+**`tx.savepoint()` で囲むこと**（`HANDOFF.md` 件26。囲まないと捕捉しても後続が動かない）。
+
+許諾（`PRIVACY_RETENTION.md`）は BEFORE INSERT トリガから
+`public.assert_consent_recorded(NEW.match_id)` を呼んで拒否する。
+**条件を書き直さない。** §2 の `matches` 側と同じ関数を使う。
+
+### 4.1 `public.system_actor_id()` — 内部ランナーの実行主体
+
+Vercel Cron から動く `/api/v1/internal/jobs/run` は match に紐づかず、
+`match_access` にも載らない。RLS を素通りさせるのではなく、**固定の UUID を1つ置く**。
+
+```sql
+CREATE OR REPLACE FUNCTION public.system_actor_id()
+  RETURNS uuid LANGUAGE sql IMMUTABLE SECURITY INVOKER
+  SET search_path = pg_catalog
+AS $$ SELECT '<uuid>'::uuid $$;
+```
+
+**定義はこの関数ただ1つ。** 参照する側は2つあるが、どちらも関数だけを見る。
+
+| 参照元 | 形 |
+| --- | --- |
+| RLSポリシー | `... OR public.app_actor_id() = public.system_actor_id()` |
+| サーバ（`SET LOCAL` する値、`sub` ガード） | `SELECT public.system_actor_id()` を引く。**TS側に UUID リテラルを置かない** |
+
+**UUID を2箇所に書かない。** 片方だけ変えたときに、ポリシーが誰にも一致しない
+（＝ランナーが黙って0行になる）か、逆に古い値が通り続ける穴が開く。
+`pg_policies` の式に `system_actor_id()` が現れ、UUIDリテラルが直書きされていないことを
+テストで検査する（`ACCEPTANCE.md` M41）。
+
+節を足すのは **`transcription_jobs` と `edit_logs` の2表だけ**である。
+`matches` / `media_sources` / `match_members` には足さない。
+したがってシステム actor から `assert_consent_recorded()` を呼んでも `matches` が見えず
+**拒否側に倒れる**が、ランナーは INSERT をしない（UPDATE だけ）ので当たらない。
+この非対称は意図である。
+
+**`sub` がこの値の JWT は 401 で弾く**（`API_SPEC.md` §0.2）。
+弾かないと、この UUID の JWT を作れる者が全 match のジョブと編集履歴を読める。
 
 ### `align_words`（不変・Pass A出力）
 `media_source_id`, `idx`, `word`, `start_ms`, `end_ms`, `confidence`
 
 PK(`media_source_id`, `idx`)、`start_ms` にindex。**レベルB削除時に物理削除。**
+
+この表を作るのは **P5**（`TASKS.md`）。P4 のジョブ基盤は stub provider が
+`AlignResult` を返すところまでで、**行は書かない**。
 
 ---
 
