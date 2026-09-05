@@ -882,3 +882,109 @@ Node v22 / vitest 4.1.11）。
 **P5 で自動再投入（`attempt < max` なら `queued` へ戻す）を実装するとき、同じ問いが出る。**
 そのときも「人の retry と自動再投入は同じ `attempt` を消費する」で通すこと。
 別勘定にしたくなったら、`attempt` と `max_attempt` の意味そのものを設計し直すことになる。
+
+---
+
+## v08 → v09 統合の申し送り（P4 完了後・分割文書更新の前）
+
+ブランチ `docs/design-v08` で、`BASIC_DESIGN_v08.md` を実装（P0〜P4）と分割文書の現行版に
+突き合わせ、`BASIC_DESIGN_v09.md` を正本として新設した作業（2026-09-05〜06）。
+確認した環境はローカル（WSL2 / Docker `postgres:16` / Node v22 / vitest 4.1.11）。
+
+### 件37 `assertNotSystemActor` が `if (false as boolean)` で無効化されたままコミットされていた — 修正済み（`999d600`）
+
+`packages/core/src/http/define-handler.ts:295` が次の状態で `ef9153b`（P4）に入っていた。
+
+```ts
+if (false as boolean) await assertNotSystemActor(tx);
+```
+
+件22 と同じ「守りを外してテストが落ちることを確かめる」作業（`scripts/db-guard-toggle.mjs`）の
+回で、DB 側は `zz-snapshot.json` から戻したが、**TS 側にはその仕組みが無く、戻し忘れた**。
+
+実測：`npm run test:db` → `tests/db/define-handler.test.ts`「sub がシステム actor の JWT は 401」が
+`expected 200 to be 401` で落ちていた（1 failed / 128 passed）。つまり **P4 完了時点で `test:db` は赤だった**。
+`sub` がシステム actor（`public.system_actor_id()`）の JWT を作れる者が、RLS の
+`transcription_jobs_select_member` / `edit_logs_insert_member` の節でランナーとして通り、
+全 match のジョブと編集履歴を読める状態だった。
+
+**無条件に戻すと別の2件が落ちる。** `runInTx` は JWT 経路と内部 API 経路の両方が通り、
+内部経路は `withSystemActor` が**意図して**システム actor を `set_config` する。そこでガードが発火し、
+「X-Job-Secret が一致すれば通る」「Authorization: Bearer でも同じ秘密で通る」が
+`expected 401 to be 200` で落ちた（2 failed / 127 passed）。docstring どおり JWT 経路だけのガードなので、
+条件を付けた。
+
+```ts
+if (auth !== "internal") await assertNotSystemActor(tx);
+```
+
+`auth` は `defineHandler(options)` の引数から分割代入され `route` クロージャに閉じ込められる値で、
+リクエストから決まらない（`define-handler.ts:79-80, 214-222`）。内部経路は `authenticateInternal()`
+（`176-193`）で共有秘密の照合を通らないと `withSystemActor`（`366-369`）へ到達しない。
+修正後 `test:db` 129/129、`test:unit` 237/237、typecheck・lint 緑。
+
+**教訓（次に守りを外して確かめるとき）**：TS 側のガードを外すなら、`git stash` か別ブランチでやる。
+`if (false as boolean)` のような「戻し忘れても typecheck が通る」書き方をしない。
+
+### 件38 v08 の第9.2・12.1・13章・付録A は、P1 で v05 へ入れた修正より前の本文から書かれていた — 参考情報（v09 で修正済み）
+
+`git log --follow docs/BASIC_DESIGN_v05.md` で、v05 は `69868da`（第13章を P1 実装に合わせる）と
+`574d676`（横断確認）の2回更新されていた。v08 の該当章はこの2コミットより前の形で、次が消えていた。
+
+`SeatLabel` / `ChairCue`（kind 4値と refine）/ `TOTAL_*_SEC` / `Ruleset` と `StageDef` の refine 9つ /
+`Uuid = z.uuid()` / `Issue` の side refine / `AttackEffectKind` と `DefendEffectKind` の分離 /
+`FlowLink.comparison` / `ComparisonAxis.favors` / `STRENGTH_ORDER` / `z.iso.datetime()` /
+`judge.test-d.ts` の説明 / §9.2 の role 5値 / §12.1 の `flow_links` 列 / 付録A の evidence。
+
+さらに v08 §13.1 の `chairCues[].kind` は `name_call` / `match_end` という**実装にもどこにも無い語彙**
+だった（実装・`henda-20.json`・`HENDA_RULESET §8` は `speech_start` / `debate_end`）。
+`ruleset.test.ts` の 13 件の negative test がこの refine 群に依存しているので、v08 §13.1 をそのまま
+実装に写すとテストが落ちる。
+
+また v05 本体は `574d676`（8/26）以降更新が無く、分割文書は P3 / P4 で更新されている
+（`aaa1792` / `e22cfe3` / `10a57dc` 等）。**v05 本体のほうが分割文書より古い。**
+v09 のマージ元は「v08 ＋ v05 ＋ 分割文書の現行版」の三者だった。
+
+`BASIC_DESIGN_v09.md` は v08 を `cp` して差分を当てる形で作った。冒頭の改訂履歴に
+「v08 から引き継いだ項目」「実装と分割文書から取り込んだ項目」「v09 で新たに決めた点」の3系統で書いてある。
+`CLAUDE.md` に「設計書の改訂は直前の版を複製して差分を当てる」を絶対原則として足した。
+
+### 件39 判断 A〜G と v09 の9点 — 判断済み（2026-09-05・ユーザー）
+
+計画時に【要判断】として挙げた7点と、v09 執筆中に決めた9点。詳細は `BASIC_DESIGN_v09.md` 冒頭の改訂履歴。
+
+| # | 問い | 判断 |
+| --- | --- | --- |
+| A | P4 を完了とみなすか | P4 は「DB とドメインまで」と再定義。job API 6本（`API_SPEC.md §3`）は **P4.5** として P5 の前に置く。`app/api/v1/` に job ルートは1本も無く、`schema/job.ts` はバレルにも `generate-schemas.ts` にも入っていない |
+| B | `consent_scope` の値域 | **5値** `practice_only` / `training_material` / `research` / `public` / `expert_reference`。v08 の `practice` は `practice_only` の書き損じ。DB CHECK（`0001`）・`schema/match.ts` の `ConsentScope`・`PRIVACY_RETENTION §2` は現在4値なので、スキーマ先行 PR で3点同時に直す |
+| C | ballot 一意制約と assessments 分離の時期 | P12 で `UNIQUE(match_id, decided_by)` / `panel_size` / `judge_issue_assessments_human` の列と制約だけ入れる。パネル UI と `GET /panel` は P22。AI案の `judge_issue_assessments` は残す |
+| D | `chairCues[].kind` | 実装語彙（`stage_start` / `prep` / `speech_start` / `debate_end`）＋ **`self_introduction`** の5値。`henda-20.json` へのエントリ追加はスキーマ先行 PR |
+| E | `role` → `node_type` | `legacy_role` は作らない。flow テーブルが無く移行対象データが無い。`ArgumentRole` / `ATTACK_TARGET_ROLE` / `flow.test.ts` / `ARGUMENT_MODEL §1` / `HENDA_RULESET §4` / `API_SPEC §6` を一括で書き換える |
+| F | `ComparisonAxis.favors` | 残す |
+| G | `effect_kind` の語彙 | `flow_links.effect_kind` は実装の 9＋4 値に v07 の 7 値を足した **20値**。`clash_events.attack_type` は別語彙（8値）とし、v09 §9.6 に多対一の対応表を置いた |
+
+v09 で新たに決めた9点（判断 A〜G の外）：(1) `RuleFlagType` に `dropped` を足して15値、(2) 名乗り区間の印は
+`is_self_introduction` に統一（v08 の `is_self_naming` は同じ列）、(3) panel_size 偶数等は専用コードを作らず
+`VALIDATION_FAILED` の `details` へ、(4) `ReviewReasonCode` 6値、(5) `AnswerEffectKind` を分離し ANSWERS では任意、
+(6) `judge_cited_segments` に `judge_issue_assessments_human.segment_ids` を UNION、(7) `evidence_status` 3値、
+(8) AI worker のロール名 `app_ai_worker` は**仮置き**（P12.4 で確定）、(9) P1.5 は P5 の前。
+
+### 件40 次の PR の順序 — **次の PR で判断が要る**
+
+v09 は正本になったが、分割文書と Zod はまだ v05 系列である。`CLAUDE.md` に「食い違ったら v09 を正とし相談する」と
+書いてあるが、食い違いが残っている期間は短いほどよい。順序は次のとおり。
+
+1. **分割文書の更新**（1 PR）。順序は v09 付録G「次の一手」2 のとおり
+   `DATA_MODEL` → `ARGUMENT_MODEL` → `JUDGE_LOGIC` → `API_SPEC` → `HENDA_RULESET` → `TRANSCRIPTION` →
+   `REVIEW_SEMANTICS` → `PRIVACY_RETENTION` → `ACCEPTANCE` → `TASKS`。
+   `JUDGE_LOGIC §1.1` の L1/L2 書き分けはここ。`REVIEW_SEMANTICS §4` の「`.reviewed` → `role_status`」は
+   §7.1 の第一原則に反する行なので必ず直す。
+2. **スキーマ先行のマイグレーションと Zod・テストの一括書き換え**（1 PR。v09 §17.2 の列挙）。
+   `ArgumentRole` → `NodeType`、`ChairCueKind` 5値、`ConsentScope` 5値（CHECK も）、`ERROR_STATUS` に4件、
+   `henda-20.json` の `self_introduction`、`packages/core/src/schema/*.ts` と `ruleset/schema.ts` のヘッダコメント
+   （`BASIC_DESIGN_v05 §13.x` のまま）。**`ruleset.test.ts` / `flow.test.ts` / `http-errors.test.ts` は仕様書の表を
+   逐語で持っているので、文書を先に直してからテストを直す。** `npm run generate-schemas` の差分ゼロも確認する。
+3. **P4.5**（job API 6本）→ P5。
+
+判断が要る点：1 と 2 を1つの PR にまとめるか。文書だけの PR は CI が何も検証しないので、
+2 と合わせたほうが「文書とコードの一致」を `test:unit` で確かめられる。ただし差分が大きくなる。
