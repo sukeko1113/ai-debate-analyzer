@@ -101,6 +101,8 @@ jobs:
       DATABASE_URL: postgres://app_server:ci-app@127.0.0.1:5432/debate_ci
       # API テストが JWT を組み立てるために使う。CI 内だけの値であり、実 Supabase の鍵ではない
       SUPABASE_JWT_SECRET: ci-only-jwt-secret
+      # 内部API（/api/v1/internal/*）の共有秘密。CI 内だけの値（API_SPEC.md §0.2）
+      JOB_CRON_SECRET: ci-only-job-secret
 
     steps:
       - uses: actions/checkout@v4

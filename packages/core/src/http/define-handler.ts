@@ -6,21 +6,23 @@
  * scripts/check-handler-routes.ts が、defineHandler を通らない route を CI で落とす。
  *
  * defineHandler が担保すること:
- *   1. JWT検証 → actor
+ *   1. JWT検証 → actor（`auth: "internal"` だけは JOB_CRON_SECRET の照合。§0.2）
  *   2. トランザクション開始 → SET LOCAL app.actor_id
+ *      （internal は SQL 側の public.system_actor_id() が主体を決める）
  *   3. Zod検証（params / body）→ 失敗は 400 VALIDATION_FAILED
  *   4. expectedVersion の照合 → 不一致は 409 VERSION_CONFLICT
  *   5. Idempotency-Key の記録と再送判定
  *   6. 例外 → エラーコードへの変換
  *   7. edit_logs への追記（before / after / actor）
  */
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { TransactionSql } from "postgres";
 import type { z } from "zod";
 import { bearerToken, JwtConfigError, JwtError, verifySupabaseJwt, type Actor } from "../auth/jwt";
 import { withActor } from "../db/client";
 import { getSql } from "../db/pool";
 import { assertMatchAccess, type RequiredAccess } from "../db/repo/match-access";
+import { assertNotSystemActor, withSystemActor } from "../jobs/system-actor";
 // 起動時に ruleset を一度引いて確かめる（HANDOFF.md 件3）。
 // import しているだけで検査が走る。値としても使う。
 import { defaultRuleset } from "../startup";
@@ -35,16 +37,28 @@ export type AuthMode =
   /** owner / member。viewer は書けない */
   | "match:write"
   /** owner だけ */
-  | "match:owner";
+  | "match:owner"
+  /**
+   * 内部API（`/api/v1/internal/*`）。JOB_CRON_SECRET だけで通す。
+   * **JWT を受け付けない**（API_SPEC.md §0.2）。match には紐づかない。
+   */
+  | "internal";
 
-// 内部API（/api/v1/internal/*・X-Job-Secret のみで JWT を受け付けない。API_SPEC.md §0.2）は
-// P2 に該当エンドポイントが無いため、ここには入れていない。P4 で足すこと。
-// 「常に 500 を返す分岐」を先に置くと、実装済みに見えて動かない経路が残る。
+/**
+ * `auth` から `actor` の型を決める。
+ *
+ * 内部経路に人の actor は無い。**`auth: "internal"` のハンドラでは `actor` が `null` 型になり、
+ * `actor.id` と書いた時点で型検査が落ちる。** 実行時の分岐ではなく型で止めるのは、
+ * 「内部APIなのに人の actor があるつもりのコード」を書けなくするためである。
+ * RLS 用の実行主体は SQL 側の `public.system_actor_id()` が決めており、
+ * TS はその値を持たない（DATA_MODEL.md §4.1）。
+ */
+export type ActorFor<A extends AuthMode> = A extends "internal" ? null : Actor;
 
-export interface HandlerContext<P, B> {
+export interface HandlerContext<P, B, A extends AuthMode = AuthMode> {
   params: P;
   body: B;
-  actor: Actor;
+  actor: ActorFor<A>;
   /** SET LOCAL app.actor_id 済みのトランザクション */
   tx: TransactionSql;
   /** edit_logs への追記。変更系では 1 件以上必須 */
@@ -62,8 +76,8 @@ export interface HandlerResult<T> {
   warnings?: string[];
 }
 
-export interface DefineHandlerOptions<P, B, T> {
-  auth: AuthMode;
+export interface DefineHandlerOptions<P, B, T, A extends AuthMode = AuthMode> {
+  auth: A;
   params?: z.ZodType<P>;
   body?: z.ZodType<B>;
   /**
@@ -86,7 +100,7 @@ export interface DefineHandlerOptions<P, B, T> {
    * 呼び出し側が 404 に倒せる（403 にすると存在が漏れる）。
    */
   matchIdFrom?: (params: P, tx: TransactionSql) => string | Promise<string>;
-  handler: (ctx: HandlerContext<P, B>) => Promise<HandlerResult<T>>;
+  handler: (ctx: HandlerContext<P, B, A>) => Promise<HandlerResult<T>>;
 }
 
 /** Next.js App Router の Route Handler の第2引数 */
@@ -132,6 +146,52 @@ function jwtSecret(): string {
   return secret;
 }
 
+/** 長さが違っても早期 return しない。長さ自体が手掛かりになる */
+function secretsMatch(given: string, expected: string): boolean {
+  const a = Buffer.from(given, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) {
+    // 長さが違う時点で不一致だが、比較の時間を揃えるため同じ長さで一度回す
+    timingSafeEqual(b, b);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * 内部API の認証（API_SPEC.md §0.2）。
+ *
+ * 受け取り口は 2 つある。**どちらも `JOB_CRON_SECRET` との文字列照合である。**
+ *   X-Job-Secret: <secret>          … 自前のポーラー・テスト
+ *   Authorization: Bearer <secret>  … Vercel Cron
+ *
+ * Vercel Cron は `Authorization: Bearer $CRON_SECRET` しか送れず、
+ * vercel.json の crons にカスタムヘッダを書く手段が無いため、設計側が合わせている。
+ *
+ * **`Authorization` を JWT として一切解釈しない。**
+ * `Bearer` を見た時点で `verifySupabaseJwt` へ流す実装を、ここへ混ぜないこと。
+ * 混ぜると、内部APIが「JWT を受け付けない」という境界を自分で外すことになる。
+ * ここから `verifySupabaseJwt` を呼ぶ経路は無く、増やさない。
+ */
+function authenticateInternal(request: Request): void {
+  const expected = process.env.JOB_CRON_SECRET;
+  if (!expected) {
+    // 未設定のときに素通りさせる分岐は作らない。設定エラーとして落とす（件15 と同じ）
+    throw new JwtConfigError(
+      "JOB_CRON_SECRET が未設定です。内部APIを検証できないため、リクエストを受け付けません。",
+    );
+  }
+
+  // bearerToken() は「Bearer の後ろを取り出す」だけの関数であり、
+  // ここで取り出したものは JWT ではなく共有秘密として扱う
+  const given =
+    request.headers.get("x-job-secret") ?? bearerToken(request.headers.get("authorization"));
+
+  if (!given || !secretsMatch(given, expected)) {
+    throw new ApiError("UNAUTHENTICATED", "内部APIの認証に失敗しました");
+  }
+}
+
 function authenticate(request: Request): Actor {
   const token = bearerToken(request.headers.get("authorization"));
   if (!token) throw new ApiError("UNAUTHENTICATED", "Authorization ヘッダがありません");
@@ -145,9 +205,12 @@ function authenticate(request: Request): Actor {
   }
 }
 
-export function defineHandler<P = undefined, B = undefined, T = unknown>(
-  options: DefineHandlerOptions<P, B, T>,
-): RouteHandler {
+export function defineHandler<
+  P = undefined,
+  B = undefined,
+  T = unknown,
+  A extends AuthMode = AuthMode,
+>(options: DefineHandlerOptions<P, B, T, A>): RouteHandler {
   const {
     auth,
     params: paramsSchema,
@@ -163,8 +226,14 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
     const mutates = MUTATING.has(method);
 
     try {
-      // --- 1. JWT検証 → actor -----------------------------------------------
-      const actor = authenticate(request);
+      // --- 1. 認証 → actor ---------------------------------------------------
+      // internal は JWT を読まない。共有秘密だけで通し、actor は null になる
+      let actor: Actor | null = null;
+      if (auth === "internal") {
+        authenticateInternal(request);
+      } else {
+        actor = authenticate(request);
+      }
 
       // --- 3. Zod検証（params） ---------------------------------------------
       const rawParams = context ? await context.params : {};
@@ -217,7 +286,14 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
       const sql = getSql();
 
       // --- 2. トランザクション開始 → SET LOCAL app.actor_id -------------------
-      const outcome = await withActor(sql, actor.id, async (tx) => {
+      // internal は実行主体を SQL 側（public.system_actor_id()）が決める。
+      // TS はその UUID を持たない（DATA_MODEL.md §4.1）
+      const runInTx = async (tx: TransactionSql) => {
+        // JWT 経路のガード。**最初のクエリより前**に置く。
+        // sub がシステム actor のトークンを弾かないと、その UUID の JWT を作れる者が
+        // 全 match のジョブと編集履歴を読める（RLS がランナーとして通すため）
+        if (false as boolean) await assertNotSystemActor(tx);
+
         // 再送判定はトランザクション内で行う。外に出すと、
         // 記録の直前に落ちたときに二重実行できてしまう
         if (idempotencyKey) {
@@ -226,7 +302,7 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
           >`
             SELECT request_hash, status_code, response
               FROM api_idempotency_keys
-             WHERE actor_id = ${actor.id} AND key = ${idempotencyKey}`;
+             WHERE actor_id = public.app_actor_id() AND key = ${idempotencyKey}`;
           const found = replay[0];
           if (found) {
             if (found.request_hash !== requestHash) {
@@ -240,8 +316,9 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
           }
         }
 
-        // 認可。RLS が一重目、これが二重目（403 と 404 の書き分け）
-        if (auth !== "authenticated") {
+        // 認可。RLS が一重目、これが二重目（403 と 404 の書き分け）。
+        // internal は match に紐づかないので通らない（AUTH_TO_ACCESS に項目が無い）
+        if (auth !== "authenticated" && auth !== "internal") {
           const matchId = await matchIdFrom(parsedParams, tx);
           if (!matchId) throw new ApiError("INTERNAL", "match id を特定できません");
           await assertMatchAccess(tx, matchId, AUTH_TO_ACCESS[auth]!);
@@ -251,7 +328,7 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
         const result = await handler({
           params: parsedParams,
           body: parsedBody,
-          actor,
+          actor: actor as ActorFor<A>,
           tx,
           audit,
           request,
@@ -266,7 +343,7 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
             `${endpoint}: 変更を行うハンドラが edit_logs に何も記録していません（API_SPEC.md §11-7）`,
           );
         }
-        await audit.flush(tx, actor.id);
+        await audit.flush(tx);
 
         const status = result.status ?? (method === "POST" ? 201 : 200);
         const responseBody = {
@@ -278,12 +355,17 @@ export function defineHandler<P = undefined, B = undefined, T = unknown>(
           await tx`
             INSERT INTO api_idempotency_keys
                    (actor_id, key, endpoint, request_hash, status_code, response)
-            VALUES (${actor.id}, ${idempotencyKey}, ${endpoint}, ${requestHash},
+            VALUES (public.app_actor_id(), ${idempotencyKey}, ${endpoint}, ${requestHash},
                     ${status}, ${tx.json(responseBody as never)})`;
         }
 
         return { body: responseBody, status, replayed: false };
-      });
+      };
+
+      const outcome =
+        auth === "internal"
+          ? await withSystemActor(sql, runInTx)
+          : await withActor(sql, actor!.id, runInTx);
 
       return json(outcome.body, outcome.status, {
         ...(outcome.replayed ? { "idempotent-replay": "true" } : {}),

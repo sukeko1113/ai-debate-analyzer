@@ -31,14 +31,32 @@ export class AuditRecorder {
     return this.entries.length;
   }
 
-  async flush(tx: TransactionSql, actorId: string): Promise<void> {
+  /**
+   * actor は SQL 側の `app_actor_id()` で埋める。TS から渡さないのは、
+   * `SET LOCAL` した値とずれる余地を消すため。
+   *
+   * edit_logs の RLS は `actor = public.app_actor_id()` を WITH CHECK に持つので、
+   * ずれた値を渡せばそもそも書けない。同じ関数から取れば、ずれようがない。
+   * 内部ジョブランナーの経路で TS が実行主体の UUID を知らなくてよくなる、
+   * という利点もある（DATA_MODEL.md §4.1）。
+   *
+   * **`RETURNING` を付けないこと。** 付けると挿入した行を読み返すため
+   * SELECT ポリシーが適用され、`edit_logs_select_member` に節を持たない
+   * システム actor（内部ジョブランナー）の経路だけが落ちる。実測:
+   *
+   *   RETURNING あり: new row violates row-level security policy for table "edit_logs"
+   *   RETURNING なし: OK（行は入る）
+   *
+   * tests/db/rls-jobs.test.ts がこの線を固定している。
+   */
+  async flush(tx: TransactionSql): Promise<void> {
     for (const e of this.entries) {
       await tx`
         INSERT INTO edit_logs (match_id, entity, entity_id, before, after, actor)
         VALUES (${e.matchId}, ${e.entity}, ${e.entityId},
                 ${e.before === undefined ? null : tx.json(e.before as never)},
                 ${e.after === undefined ? null : tx.json(e.after as never)},
-                ${actorId})`;
+                public.app_actor_id())`;
     }
   }
 }

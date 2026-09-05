@@ -119,14 +119,18 @@ export async function assertTenantIsolation(sql: Sql, table: string): Promise<vo
 }
 
 /**
- * P2 の表を空にする。
+ * P2 以降の表を空にする。
  *
  * 所有者（app_migrator）は FORCE ROW LEVEL SECURITY のためポリシー越しには読めないが、
  * TRUNCATE は行レベルの操作ではないので所有者の権限で通る。
  * テスト間の後始末専用であり、アプリの経路では使わない。
+ *
+ * **表を足したらここにも足すこと。** 消し残しがあると、
+ * 前のテストの行を数えて「作られた」と誤判定する。
  */
 export async function truncateMatchTables(sql: Sql): Promise<void> {
   await sql.unsafe(
-    `TRUNCATE TABLE edit_logs, media_sources, match_members, match_access, matches, api_idempotency_keys CASCADE`,
+    `TRUNCATE TABLE edit_logs, transcription_jobs, media_sources, match_members,
+                    match_access, matches, api_idempotency_keys CASCADE`,
   );
 }

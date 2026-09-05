@@ -840,3 +840,45 @@ bootstrap SQL 2本を流す（ホストに `psql` が無ければ `docker exec -
   `DIRECT_URL=postgres://app_migrator:devonly@127.0.0.1:5432/debate_dev` / `SUPABASE_JWT_SECRET=devonly-jwt-secret`
 - `docs/TASKS.md` の「実行場所」を「Web / デスクトップ」から「ローカル（クラウドセッションでも可）／
   ローカル（実キー）/ CI／ローカルで実装 → 人の確認」に差し替えた。各PRの要件そのものは変えていない
+
+---
+
+## P4 から P5 への申し送り
+
+P4（ジョブ基盤）の作業中に、実際にコード・DB を触って確認した事項。推測は含まない。
+確認した環境はローカル（WSL2 上の Ubuntu / Docker の `postgres:16` = PostgreSQL 16.15 /
+Node v22 / vitest 4.1.11）。
+
+### 件36 `max_attempt` は総試行回数の上限 — 判断済み（P5 で同じ問いが出る）
+
+**判断（2026-09-03・ユーザー）: `max_attempt` は総試行回数の上限であり、
+自動再投入だけの上限ではない。人が `retry` を撃った回数も同じ `attempt` に積む。**
+
+きっかけは、`retryJob` を書いていて次の穴に気づいたことである。
+
+- `claimNextJob` は `attempt < max_attempt` の行しか拾わない
+- `max_attempt` の既定は 3。3 回失敗したジョブに人が `retry` を撃つと `queued` に戻る
+- しかし二度と拾われない。**エラーも出ず、黙って進まない**
+
+読みが 2 通りあった。
+
+1. **自動再投入の上限**と読む → 人の `retry` は回数に関係なく通す。
+   `0003` の `CHECK (attempt <= max_attempt)` と `claimNextJob` の絞り込みが邪魔になり、
+   新しいマイグレーションが要る
+2. **総試行回数の上限**と読む → いまの実装で正しく、足りないのはエラーの返し方だけ
+
+**2 を採った。** 理由は、`0003` の CHECK が既にその読みで書かれていること、および
+「行を作り直さず `attempt` を積み上げる」と決めた以上、人の `retry` だけ別勘定にすると
+`attempt` が実際に走らせた回数を表さなくなることである。**`0004` は作っていない。**
+
+返すのは **`409 VERSION_CONFLICT`**。`cancel` を終了状態に撃ったときと同じ
+「この行はもう動かせない」という事実であり、新しい語彙を増やさない。
+`JOB_ALREADY_RUNNING` は「走っている」の意味なので、走っていないこの場面では嘘になる。
+ただし `VERSION_CONFLICT` だけでは理由が分からないため、
+**メッセージに `試行回数の上限に達しています（attempt/max_attempt）` と数字を入れている。**
+
+`TRANSCRIPTION.md` §6.2 に 1 行足した。
+
+**P5 で自動再投入（`attempt < max` なら `queued` へ戻す）を実装するとき、同じ問いが出る。**
+そのときも「人の retry と自動再投入は同じ `attempt` を消費する」で通すこと。
+別勘定にしたくなったら、`attempt` と `max_attempt` の意味そのものを設計し直すことになる。

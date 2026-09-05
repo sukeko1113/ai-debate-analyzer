@@ -333,3 +333,109 @@ describe("認可（RLS の二重目）", () => {
     expect(res.status).toBe(404);
   });
 });
+
+/**
+ * 内部API（API_SPEC.md §0.2 / DATA_MODEL.md §4.1 / ACCEPTANCE.md M41）。
+ *
+ * ここが「JWT を受け付けない」境界そのものである。
+ * 秘密の照合と、システム actor を名乗る JWT の拒否を、両方向で確かめる。
+ */
+describe("(1) 内部APIの認証と、システム actor のガード", () => {
+  const internalRoute = defineHandler({
+    auth: "internal",
+    handler: async ({ tx, actor }) => {
+      const rows = await tx<{ ok: boolean }[]>`
+        SELECT public.app_actor_id() = public.system_actor_id() AS ok`;
+      // actor は型として null。内部経路に人の actor は無い
+      return { data: { isSystemActor: rows[0]!.ok, actor } };
+    },
+  });
+
+  /** JWT 経路。システム actor を名乗るトークンを弾けるか見るためのもの */
+  const jwtRoute = defineHandler({
+    auth: "authenticated",
+    handler: async () => ({ data: { ok: true } }),
+  });
+
+  it("X-Job-Secret が一致すれば通り、実行主体はシステム actor になる", async () => {
+    const res = await call<{ data: { isSystemActor: boolean; actor: unknown } }>(
+      internalRoute,
+      "GET",
+      "/internal/jobs/run",
+      { token: "", headers: { "x-job-secret": process.env.JOB_CRON_SECRET! } },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data.isSystemActor).toBe(true);
+    // 人の actor は載らない
+    expect(res.body.data.actor).toBeNull();
+  });
+
+  /**
+   * Vercel Cron は Authorization: Bearer $CRON_SECRET しか送れない（API_SPEC.md §0.2）。
+   * **ここで受け取る値は JWT ではなく共有秘密である。**
+   */
+  it("Authorization: Bearer でも同じ秘密で通る（Vercel Cron の経路）", async () => {
+    const res = await call<{ data: { isSystemActor: boolean } }>(
+      internalRoute,
+      "GET",
+      "/internal/jobs/run",
+      { token: process.env.JOB_CRON_SECRET! },
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data.isSystemActor).toBe(true);
+  });
+
+  it("秘密が違えば 401", async () => {
+    const res = await call<{ error: { code: string } }>(
+      internalRoute,
+      "GET",
+      "/internal/jobs/run",
+      { token: "", headers: { "x-job-secret": "wrong-secret" } },
+    );
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("秘密が無ければ 401", async () => {
+    const res = await call(internalRoute, "GET", "/internal/jobs/run", { token: "" });
+    expect(res.status).toBe(401);
+  });
+
+  /**
+   * **内部APIは JWT を受け付けない。**
+   * 正しく署名された有効な JWT を送っても、秘密として一致しないので 401 になる。
+   * ここが通るようになったら、Bearer を JWT として解釈する経路が生えている。
+   */
+  it("正しい JWT では通らない（内部APIは JWT を受け付けない）", async () => {
+    const res = await call<{ error: { code: string } }>(
+      internalRoute,
+      "GET",
+      "/internal/jobs/run",
+      { actorId: newActorId() },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  /**
+   * **sub がシステム actor の JWT は 401**（assertNotSystemActor）。
+   *
+   * 弾かないと、この UUID のトークンを作れる者が全 match のジョブと編集履歴を読める。
+   * RLS はこの主体を「ランナー」として通すためである。
+   */
+  it("sub がシステム actor の JWT は 401", async () => {
+    // UUID は TS 側に持たない。SQL 関数から引く（DATA_MODEL.md §4.1）
+    const rows = await migrator<{ id: string }[]>`SELECT public.system_actor_id() AS id`;
+    const systemActorId = rows[0]!.id;
+
+    const res = await call<{ error: { code: string } }>(jwtRoute, "GET", "/probe", {
+      actorId: systemActorId,
+    });
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("ふつうの actor は通る（テストが「常に 401」で空回りしていないこと）", async () => {
+    const res = await call(jwtRoute, "GET", "/probe", { actorId: newActorId() });
+    expect(res.status).toBe(200);
+  });
+});

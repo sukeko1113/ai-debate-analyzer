@@ -32,6 +32,7 @@ log() { echo "[install_pkgs] $*"; }
 PG_DB="${ADA_PG_DB:-debate_dev}"
 PG_PASS="devonly"          # ローカル・セッション内だけの値。秘密ではない
 JWT_SECRET="devonly-jwt-secret"   # 同上。実 Supabase の鍵ではない
+JOB_SECRET="devonly-job-secret"   # 同上。内部API（API_SPEC.md §0.2）の共有秘密
 PG_PORT="${ADA_PG_PORT:-5432}"
 PG_CONTAINER="${ADA_PG_CONTAINER:-ada-pg}"   # ローカルで psql を借りるコンテナ名
 DB_URL="postgres://app_server:${PG_PASS}@127.0.0.1:${PG_PORT}/${PG_DB}"
@@ -62,6 +63,10 @@ DIRECT_URL=${DIRECT_URL}
 # 実 Supabase の鍵はここにも、クラウド環境の設定にも置かない（DEV_ENVIRONMENTS.md §5）。
 # 未設定だと API が 500 になる。認証を素通りさせる分岐は用意していない
 SUPABASE_JWT_SECRET=${JWT_SECRET}
+# 内部API（/api/v1/internal/*）の共有秘密（API_SPEC.md §0.2）。**この環境だけの値。**
+# X-Job-Secret ヘッダ、または Vercel Cron が送る Authorization: Bearer と照合する。
+# JWT としては一切解釈しない。未設定だと内部APIが 500 になる
+JOB_CRON_SECRET=${JOB_SECRET}
 EOF
   log "wrote .env.local"
 }
