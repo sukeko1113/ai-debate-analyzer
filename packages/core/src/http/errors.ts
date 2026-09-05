@@ -54,6 +54,8 @@ export const SQLSTATE = {
   CONSENT_REQUIRED: "AD001",
   /** 追記専用テーブルを UPDATE / DELETE しようとした */
   APPEND_ONLY: "AD002",
+  /** ジョブの状態遷移が許されていない辺だった（TRANSCRIPTION.md §6.1） */
+  INVALID_JOB_TRANSITION: "AD003",
   /** RLS の WITH CHECK 違反 / 権限不足 */
   INSUFFICIENT_PRIVILEGE: "42501",
   UNIQUE_VIOLATION: "23505",
@@ -85,6 +87,14 @@ export function toApiError(error: unknown): ApiError {
       );
     case SQLSTATE.APPEND_ONLY:
       return new ApiError("INTERNAL", "追記専用テーブルを更新しようとしました");
+    case SQLSTATE.INVALID_JOB_TRANSITION:
+      // 行が、こちらが見た状態から動いていた。API 層が先に止めるのが正常で、
+      // ここへ来るのは競合したときである。500 にすると再試行すべき競合が
+      // サーバの不具合に見える
+      return new ApiError(
+        "VERSION_CONFLICT",
+        "ジョブの状態が変わっているため、この操作はできません（TRANSCRIPTION.md §6.1）",
+      );
     case SQLSTATE.INSUFFICIENT_PRIVILEGE:
       // RLS の WITH CHECK 違反。書き込もうとした行が自分の領域の外にある
       return new ApiError("FORBIDDEN", "この操作は許可されていません");

@@ -307,6 +307,13 @@ INSERT / UPDATE も同じ `EXISTS` 条件で書く。**`viewer` を書けなく�
 | `started_at`, `finished_at` | timestamptz | |
 | `metrics` | jsonb | 所要時間・実トークン量・コスト実績 |
 | `error` | text | |
+| `created_at` | timestamptz | **次に進める1件を決める順序**（下記） |
+
+`created_at` は v05 の列一覧には無かった。「1回の呼び出しで最大1件進める」（`API_SPEC.md` §3.1）には
+`queued` の中から次の1件を決める順序が要り、`id`（`gen_random_uuid()`）は順序を持たない。
+順序が無いと、同じジョブが選ばれ続けるか、永遠に選ばれないジョブができる。
+
+`created_by` は**足していない**。誰が作ったかは `edit_logs` が持つ。
 
 **UNIQUE NULLS NOT DISTINCT (`match_id`, `kind`, `target_stage_no`, `params_hash`)**
 

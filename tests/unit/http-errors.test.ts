@@ -3,6 +3,14 @@
  *
  * 表そのものが仕様なので、仕様の値をそのまま並べて突き合わせる。
  * 実装から生成した表と比べても、写し間違いは見つからない。
+ *
+ * **突き合わせる表は 2 つある。**
+ *   ERROR_STATUS … アプリのエラーコード → HTTP
+ *   SQLSTATE     … DB の SQLSTATE      → アプリのエラーコード
+ *
+ * 片方だけを過不足なく見ても、もう片方への追加は黙って通る。
+ * 実際、P4 で AD003 を足したとき、ERROR_STATUS 側の検査は緑のままだった
+ * （SQLSTATE 側を誰も見ていなかったため）。両方を toEqual で固定する。
  */
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -35,9 +43,48 @@ const SPEC: Record<string, number> = {
   INTERNAL: 500,
 };
 
+/**
+ * SQLSTATE の定義と、それぞれが写る先。
+ *
+ * **SQLSTATE を足したら、ここにも足すまでテストが落ちる。**
+ * 落ちない状態にしておくと、変換を書き忘れた SQLSTATE が
+ * 500 INTERNAL として静かに本番へ出る。500 は「サーバの不具合」であって、
+ * 「許諾が無い」「状態が動いた」ではない。呼び出し側が再試行の判断を誤る。
+ *
+ * INTERNAL に写るものは、意図してそうしている。
+ *   AD002        … 追記専用テーブルの更新。起きた時点でサーバの不具合である
+ *   23505 / 23514 / 23503 … ハンドラ側で捕まえて意味のある応答に変える
+ *                           （例: POST /media の 23505 → already_exists）。
+ *                           ここまで来たら、捕まえ忘れである
+ */
+const SQLSTATE_SPEC: Record<string, { code: string; mapsTo: string }> = {
+  CONSENT_REQUIRED: { code: "AD001", mapsTo: "CONSENT_REQUIRED" },
+  APPEND_ONLY: { code: "AD002", mapsTo: "INTERNAL" },
+  INVALID_JOB_TRANSITION: { code: "AD003", mapsTo: "VERSION_CONFLICT" },
+  INSUFFICIENT_PRIVILEGE: { code: "42501", mapsTo: "FORBIDDEN" },
+  UNIQUE_VIOLATION: { code: "23505", mapsTo: "INTERNAL" },
+  CHECK_VIOLATION: { code: "23514", mapsTo: "INTERNAL" },
+  FOREIGN_KEY_VIOLATION: { code: "23503", mapsTo: "INTERNAL" },
+};
+
 describe("ERROR_STATUS", () => {
   it("API_SPEC.md §0.5 の表と一致する（過不足なく）", () => {
     expect(ERROR_STATUS).toEqual(SPEC);
+  });
+});
+
+describe("SQLSTATE", () => {
+  it("定義が SQLSTATE_SPEC と一致する（過不足なく）", () => {
+    const defined = Object.fromEntries(
+      Object.entries(SQLSTATE_SPEC).map(([name, { code }]) => [name, code]),
+    );
+    expect(SQLSTATE).toEqual(defined);
+  });
+
+  it("定義されている SQLSTATE はすべて、意図した ErrorCode へ写る", () => {
+    for (const [name, { code, mapsTo }] of Object.entries(SQLSTATE_SPEC)) {
+      expect(toApiError({ code }).code, `${name}（${code}）`).toBe(mapsTo);
+    }
   });
 });
 
@@ -50,6 +97,15 @@ describe("toApiError", () => {
   it("SQLSTATE AD001 は CONSENT_REQUIRED（409）になる", () => {
     const converted = toApiError({ code: SQLSTATE.CONSENT_REQUIRED });
     expect(converted.code).toBe("CONSENT_REQUIRED");
+    expect(converted.status).toBe(409);
+  });
+
+  it("SQLSTATE AD003 は VERSION_CONFLICT（409）になる", () => {
+    // ジョブの状態遷移トリガ（TRANSCRIPTION.md §6.1）。
+    // API 層が先に止めるのが正常で、ここへ来るのは競合したとき。
+    // 500 にすると、再試行すべき競合がサーバの不具合に見える
+    const converted = toApiError({ code: SQLSTATE.INVALID_JOB_TRANSITION });
+    expect(converted.code).toBe("VERSION_CONFLICT");
     expect(converted.status).toBe(409);
   });
 
