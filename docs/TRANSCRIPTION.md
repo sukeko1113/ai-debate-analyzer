@@ -1,5 +1,7 @@
 # TRANSCRIPTION.md — 4パス構成（Pass A / S / B / C）と provider 契約
 
+本書は v09 §3.5・§6・§8.5・§12.1・§17.3 に追随している（2026-09-06）。
+
 ## 0. 解くべき問題
 
 長尺（42分）を処理しきれるか、そして**時刻が信用できるか**。
@@ -53,14 +55,33 @@ media upload
 | 単語単位の時刻 | `word` / `startMs` / `endMs` の列を返す | 必須 |
 | 長尺対応 | 42分以上を1リクエストで受ける、または非同期ジョブとポーリングを提供する | 必須 |
 | URL入力 | 署名付きURLを渡せる（ファイル本体をサーバ経由で中継しない） | 推奨 |
-| 話者分離 | 話者ラベルを返す | **不要** |
+| 話者分離 | 話者ラベルを返す | **使わない（返ってきても取り込まない）** |
+| 単語時刻の精度 | 合成 fixture に対する単語境界の誤差が、**中央値 0.3 秒以内・95 パーセンタイル 1.0 秒以内** | 必須（`ACCEPTANCE.md` M46） |
 
-### 2.1 話者分離が不要な理由
+精度を必須要件に入れた理由（v06）：P6 は「境界誤差2秒以内」、G2 は「誤差中央値0.5秒以内」を要求している。
+時刻の物差しである Pass A に精度要件が無いまま、その物差しを使う工程に精度を求めると、達成不能な受け入れ基準になる。
+タイムスタンプのドリフトは既知の問題なので、provider 選定の段階で測る。
+
+### 2.1 話者分離を使わない理由（「不要」から「使わない」へ。v07）
 
 会議は発言順が決まっていないため、声質クラスタと人手の突き合わせが要る。
 **HEnDAは違う。** 発言順は12ステージで固定され、
 どのスピーチを誰が担当するかは大会ルール2.2の担当者表で決まっている（`HENDA_RULESET.md` §2）。
 したがって**ステージ境界さえ確定すれば話者は導出できる**。
+
+v05 までは「不要」としていた。v07 で「使わない」に変えたのは、実試合で**害がある**ことが分かったためである。
+
+- 実試合の書き起こしでは、自動話者分離の出力が Speaker 0〜15 の **16 ラベル**に割れていた。**8名の試合である。**
+  同一人物が複数の ID へ分割され、別人が同一の ID へ統合されており、そのままでは座席の割当に使えなかった。
+- 実際に座席が決まったのは、開会の自己紹介で述べられた氏名と担当者表を突き合わせた経路である。
+  ①の立論者が②で応答し、④の質問者が⑪で総括し、⑥の質問者が⑨のディフェンスを担当する、という対応が
+  すべて矛盾なく一致した（`HENDA_RULESET.md` §2.1）。
+- 分離出力が「不要」なだけなら害が無いが、**誤ったラベルが画面に出れば、人はそれを起点に確認を始めてしまう**。
+  担当者表から導出した割当のほうが正確なのに、AI が付けたラベルと食い違ったときに、どちらを信じるかという判断が発生する。
+
+したがって、provider が話者ラベルを返しても取り込まない。**`align_words` に `speaker` 列を作らない**（`DATA_MODEL.md` §4）。
+whosaid-editor のインポート経路（`REVIEW_SEMANTICS.md` §4）でも `speakers[]` は座席への対応づけの**入力としてのみ**使い、
+ラベルそのものを保存しない。取り込みコードに話者ラベルへの参照があれば CI で失敗させる（`ACCEPTANCE.md` M53）。
 
 本アプリは、話者割当に使っていた人手を
 「どの論点に対する発言か」の確定に振り向ける。これがUIの重心の違いになる。
@@ -69,8 +90,9 @@ media upload
 
 ## 3. Pass B — Gemini を使う場合の前提
 
-- 音声は **1秒あたり32トークン**として扱われる。42分 ≒ **80,600トークン**。
-- 1プロンプトあたりの音声長は最大**約9.5時間**。42分は余裕で収まる。
+- 音声は **1秒あたり32トークン**として扱われる。計時対象の42分 ≒ 80,600トークン、
+  アナウンスを含む**実ファイル50分 ≒ 96,000トークン**。見積りは実ファイル長で行う（v09 §3.1・§19.1）。
+- 1プロンプトあたりの音声長は最大**約9.5時間**。50分は余裕で収まる。
 - **MM:SS形式で範囲を指定した転写**を要求できる。
 
 ### 3.1 実装方針
@@ -79,8 +101,9 @@ media upload
   → **ステージごとに音声を切り出さない。結果としてサーバにffmpegが要らない。**
 - 各ステージの呼び出しでは、Pass Sが決めた範囲をMM:SSで指定し、その範囲の逐語転写のみを求める。
 - 逐語モードの指示（フィラー・言い直しを残す、整文しない）を必ず含める。
-- **コンテキストキャッシュの利用を前提にする。** 効かない場合の入力量は12回×80,600 ≒ 967,000トークン。
-  P8の受け入れ基準にキャッシュ利用の確認を含めること。
+- コンテキストキャッシュを使える provider では利用する。ただしキャッシュは **Gemini 固有の機能であり、§5 の provider 契約には含まれない**。
+  provider が `capabilities.contextCache` を `true` と宣言した場合に**のみ**、キャッシュ利用の確認を受け入れ基準に含める
+  （`TASKS.md` P8）。効かない場合の入力量は 12回 × 96,000 ≒ 1,150,000 トークン（v09 §19.1 で見積もる）。
 
 ### 3.2 プロンプトに入れないもの
 
@@ -165,6 +188,7 @@ export interface AlignProvider {            // Pass A
 
 export interface StageTranscribeProvider {  // Pass B
   readonly id: string;
+  readonly capabilities: { contextCache: boolean };   // v09 §6.6。P1.5 で追加（P5 の provider 実装より先に要る）
   prepare(input: { signedUrl: string }): Promise<{ handle: string }>;
   transcribeRange(input: {
     handle: string;
@@ -177,6 +201,11 @@ export interface StageTranscribeProvider {  // Pass B
 
 **契約テストを1本用意し、どのproviderを差しても同じ形の結果が返ることをCIで確認する。**
 テストにはネットワークを使わない stub provider を用いる。
+
+`capabilities` は、provider 固有の機能をインタフェース側で宣言するための枠である。`contextCache` はその最初の項目で、
+コンテキストキャッシュが Gemini 固有の機能であるために設けた。**契約テストは「宣言した機能が実際に使えること」までは検査しない。**
+使えることの確認は、宣言が `true` の provider に限って受け入れ基準に入る（`TASKS.md` P8）。
+`AlignProvider` には `capabilities` を足さない。`packages/core/src/transcription/provider.ts` と stub への追加は P1.5。
 
 ---
 
@@ -193,6 +222,8 @@ queued ──> running ──> succeeded
 
 ### 6.2 規則
 
+- **`kind` は4値**：`align`（Pass A）/ `stage_detect`（Pass S）/ `stage_transcribe`（Pass B。`target_stage_no` 1〜12）/ `anchor`（Pass C）。
+  `status` は5値：`queued` / `running` / `succeeded` / `failed` / `canceled`（`DATA_MODEL.md` §4）。
 - **冪等キー** = `match_id` + `kind` + `target_stage_no` + `params_hash`
   同じキーのジョブが `running` または `succeeded` なら、新規作成せず既存を返す。
   **DB側の制約は `UNIQUE NULLS NOT DISTINCT` にする。** `target_stage_no` は
@@ -206,7 +237,8 @@ queued ──> running ──> succeeded
   ブラウザを閉じても進み、開いていれば速く進む。
   秘密を要る `/internal/jobs/run` はブラウザから叩けないため、ポーリング側には
   `POST /matches/{id}/jobs/run` を使う。**どちらも1回の呼び出しで最大1件**
-  （`API_SPEC.md` §3.1）。
+  （`API_SPEC.md` §3.1）。実行契機を含む job API 6本は **P4.5**（v09 §17.3）。
+  P4 で入ったのは表・状態遷移トリガ・RLS・システム actor・`schema/job.ts` まで。
 - **`max_attempt` は総試行回数の上限である。** 自動再投入の上限ではない。
   人が `retry` を撃った回数も同じ `attempt` に積む。別勘定にすると、
   `attempt` が実際に走らせた回数を表さなくなる（行を作り直さない設計と食い違う）。
@@ -356,3 +388,51 @@ Supabase の公式ドキュメントは「6MB超は TUS resumable upload を推�
 | Restrict file upload size | 有効・**50 MB** |
 | Allowed MIME types | `audio/mpeg`, `audio/mp4`, `audio/wav`, `audio/x-m4a` |
 | RLS ポリシー | **作らない**（誰も直接読み書きできない状態が既定） |
+
+---
+
+## 8. 12ステージの外側と欠損（v07。P7.5 / P7.6）
+
+実試合の録音は、①肯定立論の前に開会と自己紹介が置かれ、⑩と⑪の本文が丸ごと失われていた。
+4パスの出力をそのまま12ステージへ押し込むと、前者は判定材料に、後者は「応答しなかった」に化ける。
+どちらも起こしてはならない（v09 §3.5・§8.5・§9.3）。
+
+### 8.1 12ステージの外側の区間
+
+| 区間 | 実試合での例 | 保持先 | 判定での扱い |
+| --- | --- | --- | --- |
+| 開会・自己紹介 | 00:12〜05:30 前後。8名が順に名乗り担当を宣言する | `match_events(kind='self_introduction')` ＋ `transcript_segments`（`stage_no` NULL、`event_id` あり） | 判定材料にしない。根拠として引用できない（`422 NON_STAGE_SEGMENT_CITED`） |
+| チェアパーソンのアナウンス | "We will now have a brief introductions from the negative side members." | `match_events(kind='announcement')` | 同上。ステージ境界の手掛かりとしてのみ使う |
+| 準備時間 | ①後1分、③後1分、④後2分、⑧後2分、⑩後2分 | `match_events(kind='prep')` | 同上 |
+| スピーチ冒頭の名乗り | "My name is ○○. I'm a constructive speaker from the affirmative side." | `transcript_segments`（`stage_no` あり、`is_self_introduction = true`）＋ `match_members.intro_segment_id` | 保持レベル C で伏せる対象 |
+
+Pass B はこれらの区間も**逐語で転写する**（自己紹介の名乗りは座席の結び付けに要る）。捨てない。
+`transcript_segments` に入れるのは、名乗り区間の削除・伏せ字・時刻照合を別系統で二重実装しないためである。
+`stage_no` を NULL 可にし、NULL のときは `event_id` を必須にする（CHECK。`DATA_MODEL.md` §5）。
+
+**名乗りは二か所にある。** 自己紹介ラウンドの名乗りと、各スピーチ冒頭の名乗りである。座席の結び付け（`HENDA_RULESET.md` §2.1）には
+前者を使い、保持レベル C で伏せる対象には両方を含める（`PRIVACY_RETENTION.md` §3）。印は `is_self_introduction` に統一する。
+
+### 8.2 ステージ長の妥当性検査と欠損の記録
+
+Pass S の境界候補を人が確定した後、ruleset の規定時間と実測長を突き合わせる（v09 §8.5）。
+
+| 検査 | 条件 | 立てるフラグ |
+| --- | --- | --- |
+| 長すぎる | 実測長 > (`durationSec` + `graceSec`) の2倍 | `stage_duration_anomaly` |
+| 短すぎる | 実測長 < `durationSec` の 1/3 | `stage_duration_anomaly` |
+| 単一区間が長すぎる | ひとつの `transcript_segment` が、そのステージの `durationSec` を超える | `segment_duration_anomaly` |
+| 合計が合わない | 12ステージの実測長合計と公式の34分の差が3分を超える | `stage_duration_anomaly`（match 単位） |
+
+閾値を緩くしているのは、実測長が名乗りとチェアパーソンの発話をどこで切るかで数十秒動くためである。
+捕まえたいのは「3分のスピーチが10分になっている」ような桁の違いであって、微差ではない。
+**このフラグは判定に入らない。** ステージ確認 UI（画面 C）で強調表示し、人が境界を引き直すか、欠損として記録するかを選ぶ。
+
+欠損は `stage_segments.coverage_status`（`complete` / `partial` / `missing`）と `coverage_note` に記録する。
+**`missing` にできるのは人だけ**である。`coverage_status ≠ complete` のステージは
+(a) そのステージを to とする DROPS を導出せず `stage_coverage_gap` を立て（`JUDGE_LOGIC.md` §4.1）、
+(b) その区間を判定根拠に引いたままロックできない（`409 GAPPED_STAGE_CITED`）。
+
+> **三つを混ぜない。** 「記録が無い」（`coverage_status`）、「聞き取れなかった」（`audibility = unheard`）、
+> 「応答しなかった」（DROPS）は別の事象であり、判定材料になるのは DROPS だけ。
+> 復旧の手段も違う（記録が無い→音声の入れ直し、聞き取れなかった→聞き直し）。
