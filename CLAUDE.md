@@ -10,8 +10,10 @@ ai-debate-analyzer: HEnDA方式の英語ディベート試合（音声・動画�
 AIは候補を出すだけで、確定するのは人間。
 
 正本は `docs/BASIC_DESIGN_v09.md`。実装前に必ず読むこと。
-`BASIC_DESIGN_v05.md` / `v08.md` は履歴。**分割文書（`DATA_MODEL.md` 等）と `packages/core/src/schema/` は v09 への追随が
-次の PR で行われる予定であり、それまで v09 と食い違う箇所がある。食い違ったら v09 を正とし、勝手に片方へ寄せず相談する。**
+`BASIC_DESIGN_v05.md` / `v08.md` は履歴。**分割文書（`DATA_MODEL.md` 等）は v09 に追随済み（P4.1・2026-09-06）。
+残っているのは `packages/core/src/schema/` と `drizzle/` の語彙で、これは P4.2 で一括して書き換える。**
+それまで Zod・DB は v09 と食い違う（文書側の該当表には【P4.2 で置換】の注記を置いてある）。
+**食い違ったら v09 を正とし、勝手に片方へ寄せず相談する。**
 
 ---
 
@@ -172,6 +174,7 @@ AIは候補を出すだけで、確定するのは人間。
   パネル UI（P22）、7成果物、whosaid import は★G0 の後。Phase Aの途中でそれらを実装しない。
   **全機能の20%ではなく、全工程を細く1本**が目的。
 - **P4 は「DB とドメインまで」。job API 6本は P4.5**（`API_SPEC.md` §3）。P5 の前に入れる。
+  P4 と P4.5 の間に **P4.1**（分割文書の v09 追随・完了）と **P4.2**（スキーマ・Zod・テストの v09 追随）が入る。
 - 着手前に実装計画を提示し、承認を得てから手を動かす。
 - ブランチ運用: `feature/pXX-xxx` → PR → `main`。コミット履歴を保つ。
 - 実装前に、そのPRに関係する `docs/*.md` を必ず読む。
@@ -189,14 +192,14 @@ AIは候補を出すだけで、確定するのは人間。
 | `docs/CONCEPT_DESIGN_v07.md` | コンセプト設計書。技術を外した全体像。三層と Strength=P×V の意図 |
 | `docs/BASIC_DESIGN_v05.md` / `v08.md` | 履歴。正本ではない |
 | `docs/HENDA_RULESET.md` | 大会ルールの条項と機械可読化の対応 |
-| `docs/DATA_MODEL.md` | テーブル定義と制約（列の型と CHECK の正本）。**v09 への追随は次の PR** |
+| `docs/DATA_MODEL.md` | テーブル定義と制約（列の型と CHECK の正本）。L1/L2/L3 の表とビュー、RLS の5段階 |
 | `docs/TRANSCRIPTION.md` | 4パス構成（Pass A / S / B / C）とprovider契約、ジョブモデル |
 | `docs/API_SPEC.md` | HTTP API契約。**セキュリティ境界そのもの。エラーコードの正本（§0.5）** |
 | `docs/PRIVACY_RETENTION.md` | 保持レベルA〜Eと削除、consent_scope と保持期限の対応 |
 | `docs/REVIEW_SEMANTICS.md` | レビュー状態の4軸。壊してはならない規則 |
-| `docs/ARGUMENT_MODEL.md` | 議論のモデル（A/B/C・Support Quality・effect_kind・比較軸・HP・役割優先UI）。**v09 への追随は次の PR**（現行は4構成要素で書かれている） |
-| `docs/JUDGE_LOGIC.md` | Decision Chartとサーバ権威。**§1.1 の L1/L2 書き分けは次の PR** |
+| `docs/ARGUMENT_MODEL.md` | 議論のモデル（A/B/C・Support Quality・effect_kind・比較軸・clash event・HP・役割優先UI）。**§1・§2 の語彙表は Zod と同時に P4.2 で置換する**（表の直前に注記あり） |
+| `docs/JUDGE_LOGIC.md` | Decision Chartとサーバ権威。三層と Human Ballot の書き分け（§1.1）、ロックの8条件（§5）、Rule State Engine、Voting Issue |
 | `docs/ACCEPTANCE.md` | 受け入れ基準（機械検証／人間検証）と品質ゲート |
-| `docs/TASKS.md` | Phase A（P0〜P13・縦切り）／Phase B（P14〜P20）のPR分割と実行場所。**P4.5 / P1.5 / P11.5 等の挿入は次の PR** |
+| `docs/TASKS.md` | Phase A（P0〜P13.5・縦切り）／Phase B（P14〜P23）／Phase C のPR分割と実行場所 |
 | `docs/HANDOFF.md` | **PR間の申し送り。着手前に読み、完了時に追記する** |
 | `docs/DEV_ENVIRONMENTS.md` | ローカル（主）とクラウドセッション（補助）の使い分け、立ち上げ手順、踏んだ穴 |
