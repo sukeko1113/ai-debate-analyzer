@@ -14,6 +14,9 @@
 「Storage が要る」と「機械で確かめられない」は、この案件では同じ意味になる。
 M 表に置くと、stub で通ったことを実物で通ったと読み違える。
 
+本書は v09 §18 と付録G-2 に追随している（2026-09-06）。v09 §18.1 の表は本書 M1〜M43 の上位集合ではなく、
+P3 / P4 の実装で足した M9 / M12 / M27〜M43 は v09 に対応行が無いが有効である。v07 以降の行は M44〜M61。
+
 | エージェントが検証できる | 検証できない |
 | --- | --- |
 | 型・スキーマ・状態遷移・集計・分岐 | 音が鳴るか、区間再生が意図した位置か |
@@ -34,9 +37,9 @@ M 表に置くと、stub で通ったことを実物で通ったと読み違え�
 | M3 | ジョブ | 状態遷移、冪等性、部分再実行 | 同じ冪等キーで二度実行しても結果が変わらない |
 | M4 | アンカー照合 | 合成fixtureでの時刻誤差 | 中央値0.5秒以内。被覆率0.6未満なら書き換えなし |
 | M5 | ステージ推定 | 境界誤差とステージ誤分類 | 誤差2秒以内、**誤分類ゼロ** |
-| M6 | ルール検査 | 9種フラグのPrecision / Recall | **Recall 0.9以上**（違反10件中9件以上）＋ **罠4件で誤検出ゼロ**。Precisionの値も記録する |
-| M7 | Issue抽出 | AD/DAラベル一致、role抽出 | 一致率を記録（回帰で下がったら失敗） |
-| M8 | Flowリンク | `ATTACKS`→Claim、`DEFENDS`→Attackの一致率 | 同上 |
+| M6 | ルール検査 | 15種フラグ（`HENDA_RULESET.md` §3）のPrecision / Recall | **Recall 0.9以上**（違反10件中9件以上）＋ **罠4件で誤検出ゼロ**。Precisionの値も記録する |
+| M7 | Issue抽出 | AD/DAラベル一致、A/B/C（`node_type`）の抽出と `OTHER` の比率 | Gold Dataset v01 で初回計測した一致率を**基準値として記録する。CI のゲートにはしない**（下回ったら人がレビューする。v09 §18.1） |
+| M8 | Flowリンク | `ATTACKS`→Claim、`DEFENDS`→Attackの一致率 | 同上（基準値の記録。ゲートにしない） |
 | M9 | 判定の対称性 | AFF/NEG反転入力（`gold-01-mirror`） | **判定が対称に反転すること** |
 | M10 | 出力 | 成果物の生成、根拠なし段落の不在 | **根拠なし段落ゼロ** |
 | M11 | 人手の保存 | 再解析前後の `human_*` 件数 | **減っていたら失敗** |
@@ -45,15 +48,15 @@ M 表に置くと、stub で通ったことを実物で通ったと読み違え�
 | M14 | 許諾 | `consent_recorded_at` が null でジョブ作成 | **`409 CONSENT_REQUIRED`** |
 | **M15** | **ロック不変条件** | 根拠segmentに `audibility = unknown` が残る状態でロック | **`409 AUDIBILITY_UNRESOLVED`。`pendingSegmentIds` が返る** |
 | **M16** | **audibilityの書き手** | ジョブ／解析経路から `audibility` を書こうとする | **DBのCHECKで失敗する** |
-| **M17** | **DB接続方式** | `postgres.js` の `prepare` 設定、`supabase-js` のDB利用 | `prepare: false` であること。DBアクセスに `supabase-js` を使っていないこと |
+| **M17** | **DB接続方式** | `postgres.js` の `prepare` 設定、`supabase-js` のDB利用 | `prepare: false` であること（静的検査）。DBアクセスに `supabase-js` を使っていないこと。加えて **CI から Supavisor 6543 へ接続するスモークテスト**が通ること（prepared statement を使う経路が失敗する。v09 §17.6） |
 | **M18** | **RLS** | 他人のmatchへのアクセス | **アプリの分岐を外してもRLSで見えないこと** |
 | **M19** | **楽観ロック** | `expectedVersion` の省略／不一致 | 省略は `400`、不一致は `409 VERSION_CONFLICT` |
 | **M20** | **保持と削除** | A→B→C→D の順序、`edit_logs` の伏せ字化 | 順序違反が拒否される。B削除後に本文が `edit_logs` にも残らない |
 | **M21** | **ノードの根拠** | `segmentIds` 0件でのノード作成 | API `422 NODE_WITHOUT_SEGMENT` ＋ DB遅延制約で失敗 |
-| **M22** | **effectiveness の分離** | 判定の集計コードが `effectiveness` / `comparison` を参照していない | 静的検査。参照があったら失敗 |
+| **M22** | **effectiveness の分離** | 判定の集計コードが `judge_flow_links` 以外から `effectiveness` / `comparison` を読んでいない | 静的検査。`flow_links` / `summary_links` への直接参照と `SELECT *` があったら失敗（v09 §12.6） |
 | **M23** | **effectiveness の書き手** | ジョブ・解析経路から `effectiveness_human` を書こうとする | DBのCHECKで失敗する |
 | **M24** | **役割優先UI** | 解析・観戦画面のコンポーネントから `display_name` への参照 | 参照があったら失敗（登録画面と公式出力を除く） |
-| **M25** | **HPの隔離** | 判定の集計コードがHPモジュールを import している | import があったら失敗。逆方向（HP→判定）も検査 |
+| **M25** | **HPの隔離** | 判定の集計コードがHPモジュール（`schema/learning.ts`）を import している | import があったら失敗。逆方向（HP→判定）も検査。判定側は `judge_flow_links` しか読めない |
 | **M26** | **比較の根拠** | `source='debater'` の `ComparisonAxis` に `segmentIds` が空 | Zod検証で失敗 |
 | **M27** | **保存パスの組み立て** | `{match_id}/{sha256}.{ext}` が sha256 と mime から決まる | `filename` を使っていないこと。mime→ext が4値とも一致 |
 | **M28** | **登録の3分岐** | 新規 / 既存 / purge後の再利用 | `created`(201) / `already_exists`(200) / `restored`(200)。**並行INSERTの23505を捕捉して既存を返す** |
@@ -72,13 +75,38 @@ M 表に置くと、stub で通ったことを実物で通ったと読み違え�
 | **M41** | **内部APIの境界** | `X-Job-Secret` / `Authorization: Bearer` の照合、システム actor | 秘密の不一致・欠落は **401**。**JWTでは通らない**。`sub` がシステム actor の JWT は **401**。`pg_policies` の式が `system_actor_id()` を参照し、**UUIDリテラルが直書きされていない** |
 | **M42** | **部分再実行** | `failed` 1件の `retry` | 他ジョブの `status` / `attempt` / `metrics` が変わらないこと |
 | **M43** | **metrics の永続化** | `succeeded` 時の `metrics` | `provider_id` / `model` / 所要時間 が行に残る（メモリ上だけに持たない） |
+| **M44** | **unheard の引用** | 根拠segmentに `audibility = unheard` が残る状態でロック | **`409 UNHEARD_CITED`。`unheardSegmentIds` が返る** |
+| **M45** | **effect_kind の方向** | `DEFENDS` に `no_link`、`COMPARES` に `effect_kind` を付ける | CHECK制約と `422` で拒否される |
+| **M46** | **Pass A の時刻精度** | 合成fixtureに対する単語境界の誤差 | 中央値0.3秒以内、95パーセンタイル1.0秒以内（`TRANSCRIPTION.md` §2） |
+| **M47** | **環境依存の混入** | リポジトリ内の絶対パスと OS 固有パス | 検出したら失敗（ローカル開発の再発防止） |
+| **M48** | **12ステージ外の区間** | `stage_no` と `event_id` の両方が NULL、または両方が非 NULL | **DBのCHECKで失敗する** |
+| **M49** | **12ステージ外の引用** | `stage_no` を持たない区間を判定根拠に引く | **`422 NON_STAGE_SEGMENT_CITED`** |
+| **M50** | **欠損ステージの引用** | `coverage_status ≠ complete` の区間を根拠に引いた状態でロック | **`409 GAPPED_STAGE_CITED`。`gappedStageNos` と `segmentIds` が返る** |
+| **M51** | **欠損ステージの DROPS** | `coverage_status ≠ complete` のステージを to とする `DROPS` | 導出されない。`stage_coverage_gap` が立つ |
+| **M52** | **ステージ長の検査** | 規定時間の2倍を超えるステージ、規定時間を超える単一 segment | `stage_duration_anomaly` / `segment_duration_anomaly` が立つ |
+| **M53** | **話者ラベルの混入** | provider が返した話者ラベルの保存、`align_words` の `speaker` 列 | 列が存在しない。取り込みコードに参照があったら失敗（静的検査） |
+| **M54** | **座席結び付け** | 名乗り区間が未特定のまま `seat_binding_status` を `human_confirmed` にする | **`400 VALIDATION_FAILED`**（`details` に理由。専用コードは作らない。v09 §14.2） |
+| **M55** | **Strength=None の根拠** | `residualNote` が空の `None` | Zod検証で失敗。DB の CHECK でも失敗 |
+| **M56** | **判定理由の根拠** | 根拠segmentを持たない段落、`ground` が未設定の段落 | 生成されない。生成されたら CI で失敗 |
+| **M57** | **バロットの一意性** | 同一ジャッジの2票目 | **`409 BALLOT_DUPLICATE`** |
+| **M58** | **パネル人数** | `panel_size` が偶数 | **`400 VALIDATION_FAILED`**（`details` に理由。v09 §14.2） |
+| **M59** | **少数意見の保存** | パネル結果の導出後に、多数と異なるバロットが消えていないか | 件数と判定理由が保存されている。`panel_result.dissenting` に id が残る |
+| **M60** | **伝達評価の混入** | `ground = 'delivery'` の段落を Voting Issue の理由に使う | `communication_in_content` が `candidate` で立つ。**自動除外はしない** |
+| **M61** | **ロック検査の分離** | 判定の集計コードが `judge_lock_guard` を import している | import があったら失敗（静的検査。v09 §12.4） |
+| **M62** | **AI と Ballot の権限分離** | `app_ai_worker` から `judge_decisions` / `judge_issue_assessments_human` への INSERT / UPDATE | **DB で拒否される**（P12.4。G9） |
+| **M63** | **AI 参考判定の再現性** | 同じ入力・同じ `scoring_config` で `recalculate` を2回 | `official_decision_support` の内容が差分ゼロ |
+| **M64** | **REVIEW_REQUIRED の不変条件** | `winner_suggestion = REVIEW_REQUIRED` と `review_reasons` の対応 | `REVIEW_REQUIRED` のときだけ `review_reasons` が1件以上（Zod の refine と DB の CHECK） |
+
+M62〜M64 は v09 §18.1 の表に無いが、§12.5・§14.6・§13.4 の不変条件から起こした（G9 / G10 の機械側）。
 
 ### 1.1 テストで手を抜かない
 
 - テストを削除して通す、`skip` する、閾値を緩めて通す、はしない。通らない理由を報告する。
-- M1・M15・M16・M18・M21・M23・M26・M30・M32・M33・**M14・M36・M40・M41** は
+- M1・M15・M16・M18・M21・M23・M26・M30・M32・M33・**M14・M36・M40・M41**・
+  **M44・M45・M48・M49・M50・M54・M55・M57・M58・M62** は
   **negative test**（「拒否されること」を確かめるテスト）である。
-- M22・M24・M25・M35 は **静的検査**（コードの依存関係を見る）である。実行時テストでは検出できない。
+- M22・M24・M25・M35・M47・M53・M61 は **静的検査**（コードの依存関係を見る）である。実行時テストでは検出できない。
+- M7・M8 は基準値の記録であり CI のゲートではない。下回ったら人がレビューする（閾値を緩めて通すのとは違う）。
 - **M36・M40 の negative test は、例外の検査ごとに `withActor` を開き直すか
   `tx.savepoint()` を使う。** postgres.js のトランザクションは1つ失敗すると全体が中断し、
   `rejects` で受けたはずの例外が外へ抜ける（`HANDOFF.md` 件13）。
@@ -105,6 +133,10 @@ M 表に置くと、stub で通ったことを実物で通ったと読み違え�
 | **H9** | **署名トークンでのアップロード** | 実 Supabase で1本上げる（署名がバケットのポリシーを迂回するか） | 開発者 |
 | **H10** | **署名URLの期限切れ** | 期限切れ後にアクセスできないこと | 開発者 |
 | **H11** | **ファイル本体の経路** | APIサーバを通過していないこと（ネットワークログで確認） | 開発者 |
+| **H12** | **欠損と不明瞭の区別** | 「記録が無い」「聞き取れなかった」「応答しなかった」が画面上で別物として見えるか | ジャッジ |
+| **H13** | **座席の結び付け** | 自己紹介の名乗りと担当宣言から、8名の座席が矛盾なく決まるか | 利用者 |
+| **H14** | **少数意見の読み取り** | パネル画面で、多数と異なる判定理由が同じ重みで読めるか | HEnDA経験者 |
+| **H15** | **Review Gate の表示** | `REVIEW_REQUIRED` のとき、なぜ止まったか・どの発言を確認するかが具体的に示されるか | ジャッジ |
 
 > **H1 は「区間」ではなく「時刻」で確かめる。** P3 の時点では `stage_segments` も
 > `transcript_segments` も無く、「区間」の元データが存在しない。
@@ -136,8 +168,11 @@ P7 実装完了（CI: 緑）
 | **G4 逐語** | 判定材料を落としていない | 実試合1本で、重要論点の聞き落としがないことを人が確認（H4） |
 | **G5 フロー** | 議論の矢印が追える | リンク一致率を記録（M8）＋人が実試合1本で承認 |
 | **G6 判定** | Judge Sheetが埋まり、理由が説明できる | **HEnDA経験者2名**が判定理由の説明可能性を承認（H5） |
-| **G7 再現** | 同じ確定版から同じ資料が出る | 2回生成して差分ゼロ |
+| **G7 再現** | 同じ確定版から同じ資料が出る | 2回生成して差分ゼロ。保持レベル B 以降を削除した試合は対象外（`410 RETENTION_PURGED`） |
 | **★G0 縦切り貫通** | 合成試合1本が最後まで通る | §3.2 |
+| **G8 実試合突き合わせ** | 許諾済みの実試合1本で、設計が現実に耐える | 座席が担当者表から矛盾なく決まる（H13）。欠損・不明瞭・未応答が別物として記録される（H12）。HEnDA経験者が判定理由を承認する。★G0 の後、CI の外で人が行う（v09 §17.2.1 の10手順） |
+| **G9 評価エンジン分離** | AI参考判定と Human Ballot が構造的に混ざらない | AI ロールの human ballot write 拒否（M62）、Strength = P × V が L2 に閉じている、L3 → Human 集計の import なし（M25・M61） |
+| **G10 Review Gate** | 不確かな勝敗を AI が断定しない | Value turn 反転・重大 UNVERIFIABLE・Voting 候補競合の fixture で `REVIEW_REQUIRED`（M64）。★G0 の後（P12.3） |
 
 ### 3.1 KPIの置き方
 
@@ -152,16 +187,43 @@ Winner一致率は記録するが、これを上げるためにプロンプト�
 
 Phase Aの終わりに置く。**合成試合1本が、取り込みからWord出力まで最後まで通ること。**
 
-1. `gold-01.mp3` を取り込み、12ステージを確定できる
+1. `gold-01.mp3` を取り込み、12ステージを確定できる。**自己紹介ラウンドから座席を結び付けられる**（P7.5）
 2. Transcriptを人がレビューし、`audibility` を全区間に設定できる
-3. AD1 と DA1 を作り、Attack / Defense を矢印でつなげる
-4. Decision Chartを埋め、Voting Issueを選び、**ロックできる**
-5. 判定理由メモのWordが出る
+3. AD1 と DA1 を A/B/C に分けて作り、Attack / Defense を矢印でつなげる。clash_events と Rule State が付く（P11.5 / P11.6）
+4. AI 参考判定（P/V/Strength と Net sum。AD1 vs DA1）が出る（P12.1）。Decision Chartを人が埋め、Voting Issueを選び、**ロックできる**
+5. 判定理由メモのWordが出る（AI 参考判定と人間 Ballot が明示分離）
 6. 同じ判定からもう一度出して差分ゼロ
+
+列は4 Issue ぶん先に入っているが、**機能は AD1 / DA1 だけ**で通す（v09 §17.2）。
+Voting Issue の counterfactual（P12.2）、Value turn Gate（P12.3）、Rule State の全分岐（P15）、パネル（P22）は G0 の条件ではない。
 
 **ここを通るまでPhase Bへ進まない。**
 「全機能の20%」ではなく「全工程を細く1本」を先に作る。
-通ったら、実試合1本で同じ流れを人が試す。
+通ったら、実試合1本で同じ流れを人が試す（G8）。
+
+### 3.3 評価エンジンの校正フェーズ（v08。Phase C 前）
+
+AI 参考判定の閾値と写像（`scoring_config`）は実試合で校正する。Gold Dataset では校正できない（§4.1）。
+3フェーズに分け、Phase 3 の数値だけを製品性能として扱う（v09 §18.1.1）。P24.5（Calibration harness）でデータ分割を固定する。
+
+| フェーズ | 試合数 | 変えてよいもの | 位置づけ |
+| --- | --- | --- | --- |
+| 1. Pilot | 10 | ルーブリック、event 種別、Rule State、データ構造の欠陥修正 | **この段階の勝敗一致率を製品性能として公表しない** |
+| 2. Calibration | 30〜50 | **`scoring_config` のみ**（カテゴリ写像、閾値、`chain_rule` 等）。ルーブリックや DB 構造を変えたら Phase 1 へ戻る | 校正 |
+| 3. Hold-out | 20〜30 | 何も変えない。報告のみ | 性能の報告 |
+
+| 指標 | Phase 3 の目標 |
+| --- | --- |
+| AI 参考勝敗 vs 多数票 | 80% 以上 |
+| P / V / Strength セル一致 | 各 75% 以上 |
+| Human Voting Issue が AI 上位2候補に含まれる | 70% 以上 |
+| Communication 提案が人間点 ±1 | 80% 以上 |
+| Attack target / type / Rule State の κ | 0.6 以上 |
+| Delivery 平文化再採点による Strength 変動 | 10% 以内、Voting Issue 不変 |
+| Review Gate | Value turn・重大欠損等の見逃し率を別途報告 |
+
+`human_disagreement = 少数票 / 総票数` と AI の margin は別変数として保存し、4-1 を機械的に「僅差」と扱わない。
+§3.1 の「Winner 一致率を上げるためにプロンプトを調整しない」は、ここでも効く。
 
 ---
 
@@ -194,8 +256,8 @@ M9のため、Gold Dataset から **ADとDAを入れ替えた反転版 `gold-01-
 
 ### 4.3 Phase Aで使う範囲
 
-Phase Aでは **AD1 と DA1 だけ**を使う。AD2 / DA2 と RuleFlag の正解データは
-Gold Datasetに含めておくが、検証はPhase B（P14 / P15）で行う。
+Phase Aでは、列は4 Issue ぶん先に入れるが、**機能は AD1 と DA1 だけ**を使う（v09 §17.2）。
+AD2 / DA2 と RuleFlag の正解データはGold Datasetに含めておくが、検証は★G0 の後（P14 / P15 / P12.2 / P12.3）で行う。
 
 ### 4.4 違反10件と罠4件（v05.1で確定）
 
@@ -244,10 +306,31 @@ Gold Dataset に次を含める。すでに原稿を書いていれば、追記�
 
 | 追加 | 内容 |
 | --- | --- |
-| 4構成要素のラベル | 各 Claim が `present` / `effect` / `importance` / `evidence` のどれか |
-| Attack の対象と種別 | どの `role` を `effect_kind` 何で攻撃したか |
+| A/B/C のラベル | 各 Claim が `A_OBSERVATION` / `B_LINK`（`link_order`）/ `C_IMPACT` / `OTHER` のどれか（v05 の4構成要素 `present` / `effect` / `importance` / `evidence` からの写しは `ARGUMENT_MODEL.md` §1） |
+| Attack の対象と種別 | どの `node_type` を `effect_kind` 何で攻撃したか。対応する `clash_events.attack_type` |
 | 正解 `effectiveness` | 各やりとりが `strong` / `partial` / `none` のどれか（AI候補との一致率を測る） |
-| Summary の比較軸 | `magnitude` / `probability` / `timeframe` / `value` のどれを使い、どちらに有利としたか |
+| Summary の比較軸 | `magnitude` / `probability` / `timeframe` / `value` のどれを使い、どちらに有利としたか（`summary_links`） |
 
 `effectiveness` の正解は、AIの候補精度を測るためだけに使う。
 **判定の正解データではない**（判定の正解は Judge Sheet 側にある）。
+
+### 4.6 Gold Dataset v02 で足すもの（v07。★G0 の後）
+
+v01 は「正しく作られた試合」を検証するデータだった。実試合が示したのは、正しく作られていない入力のほうが多いということである
+（v09 付録 G-2）。v02 では v01 の6手順に加えて次を仕込む。手順そのものは変えず、仕込む内容だけを足す。
+
+| 追加する要素 | 仕込み方 | 検証する対象 |
+| --- | --- | --- |
+| 開会・自己紹介ラウンド | 8名が順に名乗り、担当を宣言する2〜5分の区間を先頭に置く | `stage_no` が NULL の区間の保持（M48）、座席結び付け（H13）、判定根拠にできないこと（M49） |
+| ステージ丸ごとの欠損 | ⑩と⑪に相当する範囲を無音または雑音に差し替える。正解データには `missing` と記録する | `coverage_status`、`stage_duration_anomaly`（M52）、DROPS 抑止（M51）、`409 GAPPED_STAGE_CITED`（M50） |
+| 境界の脱落 | ⑨〜⑪のチェアパーソンのアナウンスを1箇所削り、Pass S が境界を落とす状況を作る | ステージ長の妥当性検査、人が引き直せること |
+| 代替手段による攻撃 | 「既存の制度で足りる」型の攻撃と、それへの「適用範囲が狭い」という再反論を1組入れる | `effect_kind` の `alternative_solves` / `alt_limited` |
+| 対象へ届かない攻撃 | 「対象者の大半が要件を満たさない」型の攻撃を1件入れる | `effect_kind` の `not_solvent` |
+| 質疑での譲歩 | 質疑で相手が前提を認める応答を1件、答えをずらす応答を1件入れる | ANSWERS の `admits` / `declines_to_answer` |
+| 3人のパネル | 同じ試合に対する3件のバロットを正解として作る。うち1件は結論が異なり、Voting Issue も違う | パネル結果の導出、少数意見の保存（M59）、`BALLOT_DUPLICATE`（M57） |
+| 伝達評価の混入 | 「声が通っていて説得力があったので AD2 は強く残った」という段落を判定理由の正解に1件入れる | `communication_in_content` が candidate で立ち、自動除外されないこと（M60） |
+| Strength=None | DA2 を None とし、残存リスクの記述を正解に含める | `residualNote` 必須の検証（M55） |
+| Review Gate | Value turn の採否で勝者が変わる Issue を1件入れる | `REVIEW_REQUIRED`（M64。P12.3） |
+
+**v01 を捨てない。** v02 は v01 の置き換えではなく追加である。v01 は「きれいな試合が正しく処理されること」を検証し続ける。
+欠損入りのデータだけになると、正常系の回帰が薄くなる。**CI は両方を回す。**
