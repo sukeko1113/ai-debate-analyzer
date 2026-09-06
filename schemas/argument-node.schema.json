@@ -31,17 +31,28 @@
         "SUMMARY_POINT"
       ]
     },
-    "role": {
+    "nodeType": {
       "anyOf": [
         {
           "type": "string",
           "enum": [
-            "present",
-            "effect",
-            "importance",
-            "evidence",
-            "other"
+            "A_OBSERVATION",
+            "B_LINK",
+            "C_IMPACT",
+            "OTHER"
           ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "linkOrder": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         },
         {
           "type": "null"
@@ -79,7 +90,8 @@
     "id",
     "issueId",
     "kind",
-    "role",
+    "nodeType",
+    "linkOrder",
     "stageNo",
     "text",
     "segmentIds",

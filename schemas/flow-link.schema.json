@@ -42,6 +42,8 @@
             "not_necessary",
             "no_link",
             "no_solvency",
+            "alternative_solves",
+            "not_solvent",
             "not_important",
             "value_turn",
             "evidence_weak",
@@ -49,7 +51,12 @@
             "re_evidence",
             "re_explain",
             "counter_example",
-            "mitigate"
+            "mitigate",
+            "re_link",
+            "concede",
+            "alt_limited",
+            "admits",
+            "declines_to_answer"
           ]
         },
         {

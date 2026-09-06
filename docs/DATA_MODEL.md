@@ -503,7 +503,7 @@ UNIQUE(`match_id`, `label`)
 
 `node_type` は v09 で `role`（v05 の4構成要素 `present` / `effect` / `importance` / `evidence` ＋ `other`）を
 置き換えた列である。**`legacy_role` は作らない**（flow テーブルはまだ無く、移行対象データが無い。v09 §9.5）。
-`packages/core/src/schema/flow.ts` の `ArgumentRole` は P4.2 で `NodeType` へ一括で書き換える。
+`packages/core/src/schema/flow.ts` の `ArgumentRole` は P4.2 で `NodeType` へ一括で書き換えた。
 
 Evidence はノードではない。「なぜそう言えるか」の質は Support Quality タグ
 （`EVIDENCE` / `WARRANT` / `RELEVANCE` / `BURDEN`。`argument_node_scores.support_tags`）として

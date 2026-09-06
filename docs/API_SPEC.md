@@ -436,7 +436,7 @@ export const CreateNodeReq = z.object({
   text: z.string().min(1),
   segmentIds: z.array(z.uuid()).min(1),   // ← 0件は 422 NODE_WITHOUT_SEGMENT
 }).refine(n => n.nodeType === 'B_LINK' ? n.linkOrder !== null : n.linkOrder === null);
-// schema/flow.ts は P4 時点で role: ArgumentRole（5値）。NodeType への一括書き換えは P4.2
+// schema/flow.ts の ArgumentNode も同じ形（nodeType / linkOrder と同じ refine）。P4.2 で一括して書き換えた
 
 export const ReviewReq = z.object({
   expectedVersion: z.number().int(),

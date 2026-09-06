@@ -13,9 +13,8 @@ Impact 比較の4軸、HP、役割優先UI（`BASIC_DESIGN_v09.md` 付録F）。
 > この過程を、音声・Flow・時刻付き根拠とともに見える形へ変えることにある。
 
 本書は v09 §3.2・§9.5〜9.10・§10.3〜10.4 に追随している（2026-09-06）。
-ただし §1 の表・§2.1 / §2.2 の表・§5.1 の保存先は `packages/core/src/schema/flow.test.ts` が
-逐語で固定しており、**表の書き換えは Zod と同時（P4.2）** に行う。それまで表は v05 の値のままで、
-直前の注記が v09 の値を示す。
+§1 の表・§2.1 / §2.2 の表・§5.1 の保存先は `packages/core/src/schema/flow.test.ts` が逐語で固定しているため、
+P4.2 で Zod・テストと同時に書き換えた（`HANDOFF.md` 件41 e）。
 
 ---
 
@@ -40,20 +39,10 @@ ASR や記録欠損で証拠を確認できないときは level を下げず `e
 `link_order` を持つのは `B_LINK` だけ（Zod の refine と DB の CHECK）。
 `P = chain_rule(A, B1..Bn)` の既定は `weakest_link`（`JUDGE_LOGIC.md` §1.1）。
 
-**移行は不要。** flow テーブルは P11 で初めて作るため `role` を持つ行はどこにも無い。
-`legacy_role` は作らず、`ArgumentRole`（5値）と `ATTACK_TARGET_ROLE` は P4.2 で `NodeType` へ一括で書き換える。
-
-> **【P4.2 で置換】** 以下の表は v05 の `role`（4構成要素＋`other`）であり、`flow.test.ts` が
-> 「ARGUMENT_MODEL.md §1」として5値を固定している。v09 の対応は
-> `present` → `A_OBSERVATION`、`effect` → `B_LINK`、`importance` → `C_IMPACT`、
-> `evidence` → Support Quality タグ、`other` → `OTHER`。表の置換は Zod と同時に行う。
-
-| `role` | 意味 | 典型的なAttack | 崩れたときの波及 |
-| --- | --- | --- | --- |
-| `present` | 現状・前提（Present Situation / Inherency / Uniqueness） | 現状認識が違う／程度が違う | 前提が崩れると後段の `effect` も弱くなる |
-| `effect` | Planから結果への因果（Effect / Link / Solvency / Process） | No link／因果が弱い／別原因がある | 因果が切れると Issue 全体が立たない |
-| `importance` | 結果の重要性（Importance / Significance / Impact） | 規模が小さい／発生可能性が低い／価値がない | Value turn で逆転することもある |
-| `evidence` | 主張を支える根拠と理由づけ（Evidence / Warrant） | 根拠不足／出典が弱い／ロジックジャンプ | Claim と根拠の接続が切れる |
+**移行は不要だった。** flow テーブルは P11 で初めて作るため `role` を持つ行はどこにも無い。
+`legacy_role` は作らず、`ArgumentRole`（5値）と `ATTACK_TARGET_ROLE` は P4.2 で `NodeType` へ一括で書き換えた。
+v05 の `role` との対応は `present` → `A_OBSERVATION`、`effect` → `B_LINK`、`importance` → `C_IMPACT`、
+`evidence` → Support Quality タグ（§1.1）、`other` → `OTHER`。
 
 ### 1.1 Support Quality タグと `evidence_refs` の違い
 
@@ -83,29 +72,25 @@ relation ごとに語彙が閉じ、ATTACKS / DEFENDS では必須、**ANSWERS �
 
 ### 2.1 ATTACKS の種別
 
-> **【P4.2 で置換】** 以下の表は v05 の9値。v09 は `no_solvency` の後に
-> **`alternative_solves`**（既存の制度・別の手段で足りる）と **`not_solvent`**（対象の大半が要件を満たさず届かない）
-> を足した **11値**で、「主な対象」列は `role` ではなく `node_type`
-> （`present` → `A_OBSERVATION`、`effect` → `B_LINK`、`importance` → `C_IMPACT`、`evidence` → `SUPPORT`）になる。
-> `flow.test.ts` が9値と `ATTACK_TARGET_ROLE` を固定しているので、表の置換は Zod と同時に行う。
+「主な対象」列は検出の手掛かりであり、これ以外のノードを攻撃できないという意味ではない
+（`ATTACK_TARGET_NODE_TYPE`。v09 §13.2）。`SUPPORT` は `node_type` の値ではなく、
+A/B/C ノードの Support Quality タグ（§1.1）へ向かう攻撃であることを示す。
 
-| `effect_kind` | 意味 | 主な対象 `role` |
+| `effect_kind` | 意味 | 主な対象 `node_type` |
 | --- | --- | --- |
-| `not_true` | 現状認識が事実と違う | `present` |
-| `not_unique` | Planがなくても同じことが起きる | `present` |
-| `not_necessary` | Planがなくても Advantage は得られる | `present` |
-| `no_link` | Planから結果への因果が成立しない | `effect` |
-| `no_solvency` | Planでは解決しない | `effect` |
-| `not_important` | 結果に客観的な価値がない | `importance` |
-| `value_turn` | 価値づけを逆転させる（良いこと→避けるべきこと） | `importance` |
-| `evidence_weak` | 根拠が不足／出典が弱い | `evidence` |
-| `logic_jump` | Claim と根拠の接続が飛んでいる | `evidence` |
+| `not_true` | 現状認識が事実と違う | `A_OBSERVATION` |
+| `not_unique` | Planがなくても同じことが起きる | `A_OBSERVATION` |
+| `not_necessary` | Planがなくても Advantage は得られる | `A_OBSERVATION` |
+| `no_link` | Planから結果への因果が成立しない | `B_LINK` |
+| `no_solvency` | Planでは解決しない | `B_LINK` |
+| `alternative_solves` | 既存の制度・別の手段で足りる（Plan を採らなくてよい） | `B_LINK` |
+| `not_solvent` | 対象の大半が要件を満たさず、Plan の効果が届かない | `B_LINK` |
+| `not_important` | 結果に客観的な価値がない | `C_IMPACT` |
+| `value_turn` | 価値づけを逆転させる（良いこと→避けるべきこと） | `C_IMPACT` |
+| `evidence_weak` | 根拠が不足／出典が弱い | `SUPPORT` |
+| `logic_jump` | Claim と根拠の接続が飛んでいる | `SUPPORT` |
 
 ### 2.2 DEFENDS の種別
-
-> **【P4.2 で置換】** 以下の表は v05 の4値。v09 は **`re_link`**（切られた因果を別経路でつなぎ直す）、
-> **`concede`**（攻撃を認めたうえで残りを守る）、**`alt_limited`**（`alternative_solves` への再反論。代替手段の適用範囲が狭い）
-> を足した **7値**。`flow.test.ts` が4値を固定しているので、表の置換は Zod と同時に行う。
 
 | `effect_kind` | 意味 |
 | --- | --- |
@@ -113,6 +98,9 @@ relation ごとに語彙が閉じ、ATTACKS / DEFENDS では必須、**ANSWERS �
 | `re_explain` | 説明し直す・誤読を正す |
 | `counter_example` | 反例を示す |
 | `mitigate` | 影響を限定する |
+| `re_link` | 切られた因果を別経路でつなぎ直す |
+| `concede` | 攻撃を認めたうえで、残りを守る |
+| `alt_limited` | `alternative_solves` への再反論。代替手段の適用範囲が狭い |
 
 Defense は `clash_events` 上では親 Attack を `parent_event_id` で参照し、`recovery_cat`
 （Attack の核心に答えたか。論点ずらしは Minor 以下）を持つ（v09 §9.6）。
@@ -133,7 +121,6 @@ Case flip に相当する議論を Attack 以降で検出したら、`effect_kin
 ANSWERS では `effect_kind` は**任意**。付いた場合、`clash_events` では `type = concession` / `clarification`、
 `rule_state = NEEDS_CITATION` で記録し、後続スピーチで明示的に引用されたときだけ AI 参考 P/V へ反映する
 （`scoring_config.qa_effect_mode = 'cited_only'` が既定。v09 §10.5）。
-`AnswerEffectKind` の Zod と `EffectKind` の和への追加は P4.2。
 
 ### 2.4 `clash_events.attack_type`（8値）と `effect_kind` の対応
 

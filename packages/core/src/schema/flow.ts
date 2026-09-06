@@ -45,67 +45,106 @@ export const NodeKind = z.enum([
 export type NodeKind = z.infer<typeof NodeKind>;
 
 /**
- * 議論の4構成要素（ARGUMENT_MODEL.md §1）＋ どれにも当たらない `other`。
+ * 証明構造の3ノード（ARGUMENT_MODEL.md §1）＋ どれにも当たらない `OTHER`。
  *
- * `role: 'evidence'` は「なぜそう言えるか」を述べた言明であり、攻撃対象になる。
- * 引用の記録（出典・年度・氏名）である evidence_refs とは別物（§1.1）。
+ * Evidence / Warrant は**第4のノードではない**。A/B/C が成立する理由の質を表す
+ * Support Quality タグ（EVIDENCE / WARRANT / RELEVANCE / BURDEN）として
+ * argument_node_scores の level 理由に保存する（§1.1）。
+ * 引用の記録（出典・年度・氏名）である evidence_refs とはさらに別物である。
  */
-export const ArgumentRole = z.enum(["present", "effect", "importance", "evidence", "other"]);
-export type ArgumentRole = z.infer<typeof ArgumentRole>;
+export const NodeType = z.enum(["A_OBSERVATION", "B_LINK", "C_IMPACT", "OTHER"]);
+export type NodeType = z.infer<typeof NodeType>;
 
-export const ArgumentNode = z.object({
-  id: Uuid,
-  issueId: Uuid.nullable(),
-  kind: NodeKind,
-  role: ArgumentRole.nullable(),
-  stageNo: z.number().int().min(1).max(12),
-  text: z.string(),
-  /** 根拠時刻へ必ず戻れる。0件のノードは作らせない（ACCEPTANCE.md M21） */
-  segmentIds: z.array(Uuid).min(1),
-  reviewStatus: ReviewStatus,
-});
+export const ArgumentNode = z
+  .object({
+    id: Uuid,
+    issueId: Uuid.nullable(),
+    kind: NodeKind,
+    /** CLAIM 以外は null 可 */
+    nodeType: NodeType.nullable(),
+    /** 因果の順序。B_LINK だけが持つ（P = chain_rule(A, B1..Bn)） */
+    linkOrder: z.number().int().positive().nullable(),
+    stageNo: z.number().int().min(1).max(12),
+    text: z.string(),
+    /** 根拠時刻へ必ず戻れる。0件のノードは作らせない（ACCEPTANCE.md M21） */
+    segmentIds: z.array(Uuid).min(1),
+    reviewStatus: ReviewStatus,
+  })
+  .refine((n) => (n.nodeType === "B_LINK" ? n.linkOrder !== null : n.linkOrder === null), {
+    message: "linkOrder は B_LINK だけが持つ（ARGUMENT_MODEL.md §1）",
+    path: ["linkOrder"],
+  });
 export type ArgumentNode = z.infer<typeof ArgumentNode>;
 
-/** ATTACKS の種別（ARGUMENT_MODEL.md §2.1） */
+/** ATTACKS の種別（ARGUMENT_MODEL.md §2.1）。11値 */
 export const AttackEffectKind = z.enum([
+  // → A_OBSERVATION
   "not_true",
   "not_unique",
   "not_necessary",
+  // → B_LINK
   "no_link",
   "no_solvency",
+  "alternative_solves",
+  "not_solvent",
+  // → C_IMPACT
   "not_important",
   "value_turn",
+  // → Support Quality
   "evidence_weak",
   "logic_jump",
 ]);
 export type AttackEffectKind = z.infer<typeof AttackEffectKind>;
 
-/** DEFENDS の種別（ARGUMENT_MODEL.md §2.2） */
+/** DEFENDS の種別（ARGUMENT_MODEL.md §2.2）。7値 */
 export const DefendEffectKind = z.enum([
   "re_evidence",
   "re_explain",
   "counter_example",
   "mitigate",
+  "re_link",
+  "concede",
+  "alt_limited",
 ]);
 export type DefendEffectKind = z.infer<typeof DefendEffectKind>;
 
-export const EffectKind = z.enum([...AttackEffectKind.options, ...DefendEffectKind.options]);
+/**
+ * ANSWERS の種別（ARGUMENT_MODEL.md §2.3）。2値。
+ *
+ * ANSWERS では effect_kind は**任意**である。質疑で答えをずらしたこと自体は
+ * 判定材料になるが、後続スピーチで明示的に引用されたときだけ AI 参考 P/V へ反映する
+ * （scoring_config.qa_effect_mode = 'cited_only' が既定）。
+ */
+export const AnswerEffectKind = z.enum(["admits", "declines_to_answer"]);
+export type AnswerEffectKind = z.infer<typeof AnswerEffectKind>;
+
+/** 3者の和（20値）。clash_events.attack_type（8値）とは別語彙である（§2.4） */
+export const EffectKind = z.enum([
+  ...AttackEffectKind.options,
+  ...DefendEffectKind.options,
+  ...AnswerEffectKind.options,
+]);
 export type EffectKind = z.infer<typeof EffectKind>;
 
 /**
- * 各 Attack が主に狙う role（ARGUMENT_MODEL.md §2.1 の「主な対象 role」列）。
- * 検出の手掛かりであり、これ以外の role を攻撃できないという意味ではない。
+ * 各 Attack が主に狙う node_type（ARGUMENT_MODEL.md §2.1 の「主な対象 node_type」列）。
+ * 検出の手掛かりであり、これ以外のノードを攻撃できないという意味ではない。
+ *
+ * `SUPPORT` は node_type の値ではない。A/B/C ノードの Support Quality タグ（§1.1）へ
+ * 向かう攻撃であることを示す。evidence がノードでなくなったため、行き先も node_type ではない。
  */
-export const ATTACK_TARGET_ROLE: Record<AttackEffectKind, ArgumentRole> = {
-  not_true: "present",
-  not_unique: "present",
-  not_necessary: "present",
-  no_link: "effect",
-  no_solvency: "effect",
-  not_important: "importance",
-  value_turn: "importance",
-  evidence_weak: "evidence",
-  logic_jump: "evidence",
+export const ATTACK_TARGET_NODE_TYPE: Record<AttackEffectKind, NodeType | "SUPPORT"> = {
+  not_true: "A_OBSERVATION",
+  not_unique: "A_OBSERVATION",
+  not_necessary: "A_OBSERVATION",
+  no_link: "B_LINK",
+  no_solvency: "B_LINK",
+  alternative_solves: "B_LINK",
+  not_solvent: "B_LINK",
+  not_important: "C_IMPACT",
+  value_turn: "C_IMPACT",
+  evidence_weak: "SUPPORT",
+  logic_jump: "SUPPORT",
 };
 
 /**
@@ -145,6 +184,8 @@ const isAttackKind = (k: EffectKind): k is AttackEffectKind =>
   (AttackEffectKind.options as readonly string[]).includes(k);
 const isDefendKind = (k: EffectKind): k is DefendEffectKind =>
   (DefendEffectKind.options as readonly string[]).includes(k);
+const isAnswerKind = (k: EffectKind): k is AnswerEffectKind =>
+  (AnswerEffectKind.options as readonly string[]).includes(k);
 
 export const FlowLink = z
   .object({
@@ -152,7 +193,7 @@ export const FlowLink = z
     from: Uuid,
     to: Uuid,
     relation: Relation,
-    /** そのやりとりが何をしたか（ARGUMENT_MODEL.md §2）。ATTACKS / DEFENDS のみ持つ */
+    /** そのやりとりが何をしたか（ARGUMENT_MODEL.md §2）。ATTACKS / DEFENDS / ANSWERS のみ持つ */
     effectKind: EffectKind.nullable().default(null),
     /** 比較の中身。Summary の COMPARES リンクだけが持つ（ARGUMENT_MODEL.md §5） */
     comparison: z.array(ComparisonAxis).default([]),
@@ -161,13 +202,21 @@ export const FlowLink = z
   })
   .refine(
     (l) => {
-      if (l.relation === "ATTACKS") return l.effectKind !== null && isAttackKind(l.effectKind);
-      if (l.relation === "DEFENDS") return l.effectKind !== null && isDefendKind(l.effectKind);
-      return l.effectKind === null;
+      switch (l.relation) {
+        case "ATTACKS":
+          return l.effectKind !== null && isAttackKind(l.effectKind);
+        case "DEFENDS":
+          return l.effectKind !== null && isDefendKind(l.effectKind);
+        // 質疑の応答は「答えをずらした」を必ず付けられるとは限らない。任意にする
+        case "ANSWERS":
+          return l.effectKind === null || isAnswerKind(l.effectKind);
+        default:
+          return l.effectKind === null;
+      }
     },
     {
       message:
-        "effectKind は ATTACKS / DEFENDS のときだけ持ち、語彙もそれぞれの表に従う（ARGUMENT_MODEL.md §2）",
+        "relation に許されない effectKind（ARGUMENT_MODEL.md §2）。ATTACKS / DEFENDS では必須、ANSWERS では任意、それ以外は null",
       path: ["effectKind"],
     },
   )

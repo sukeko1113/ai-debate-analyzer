@@ -202,8 +202,8 @@ Evidence / Warrant は**ノードではない**。A/B/C が成立する理由の
 Judge Sheet の Probability が Evidence を含むため、独立係数として二重評価しないためである（`ARGUMENT_MODEL.md` §1）。
 引用の記録（3.2.1 の充足判定）は `evidence_refs`。
 
-> **【P4.2 で置換】** P1 で実装した `ArgumentRole` は v05 の5値（`present` / `effect` / `importance` / `evidence` / `other`）で、
-> `flow.test.ts` が固定している。v09 の `NodeType` 4値への一括書き換えは Zod と同時に行う。`legacy_role` は作らない。
+P1 で実装した `ArgumentRole`（v05 の5値 `present` / `effect` / `importance` / `evidence` / `other`）は、
+P4.2 で `NodeType` 4値へ一括で書き換えた。`legacy_role` は作らない（`ARGUMENT_MODEL.md` §1）。
 
 AD・DAとも**各側最大2**（`maxIssuesPerSide = 2`）。見かけ2つでも中身が3つ以上なら、主要な2つ以外は無視される
 （3件目以降は `INADMISSIBLE_EXTRA_ISSUE` / `extra_issue` の候補）。

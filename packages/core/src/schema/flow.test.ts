@@ -5,15 +5,16 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  AnswerEffectKind,
   ArgumentNode,
-  ArgumentRole,
-  ATTACK_TARGET_ROLE,
+  ATTACK_TARGET_NODE_TYPE,
   AttackEffectKind,
   ComparisonAxis,
   DefendEffectKind,
   EffectKind,
   FlowLink,
   Issue,
+  NodeType,
   RuleFlag,
   RuleFlagType,
 } from "./flow";
@@ -30,7 +31,8 @@ const claim = {
   id: ID.node1,
   issueId: ID.issue,
   kind: "CLAIM",
-  role: "effect",
+  nodeType: "B_LINK",
+  linkOrder: 1,
   stageNo: 1,
   text: "Plan により通学時間が短縮される",
   segmentIds: [ID.seg],
@@ -95,20 +97,40 @@ describe("Issue", () => {
 });
 
 describe("ArgumentNode", () => {
-  it("role が議論の4構成要素＋other の5値（ARGUMENT_MODEL.md §1）", () => {
-    expect(ArgumentRole.options).toEqual(["present", "effect", "importance", "evidence", "other"]);
+  it("node_type が証明構造の3ノード＋OTHER の4値（ARGUMENT_MODEL.md §1）", () => {
+    expect(NodeType.options).toEqual(["A_OBSERVATION", "B_LINK", "C_IMPACT", "OTHER"]);
   });
 
-  it("5値それぞれが受理される", () => {
-    for (const role of ArgumentRole.options) {
-      expect(ArgumentNode.safeParse({ ...claim, role }).success).toBe(true);
+  it("4値それぞれが受理される（linkOrder は B_LINK のときだけ入れる）", () => {
+    for (const nodeType of NodeType.options) {
+      const linkOrder = nodeType === "B_LINK" ? 1 : null;
+      expect(ArgumentNode.safeParse({ ...claim, nodeType, linkOrder }).success).toBe(true);
     }
-    expect(ArgumentNode.safeParse({ ...claim, role: null }).success).toBe(true);
+    expect(ArgumentNode.safeParse({ ...claim, nodeType: null, linkOrder: null }).success).toBe(
+      true,
+    );
   });
 
-  it("表にない role は拒否される", () => {
-    for (const role of ["warrant", "impact", "inherency", "solvency"]) {
-      expect(ArgumentNode.safeParse({ ...claim, role }).success).toBe(false);
+  it("表にない node_type は拒否される。v05 の role 語彙も通らない", () => {
+    for (const nodeType of ["present", "effect", "importance", "evidence", "other", "SUPPORT"]) {
+      expect(ArgumentNode.safeParse({ ...claim, nodeType }).success).toBe(false);
+    }
+  });
+
+  it("linkOrder を持てるのは B_LINK だけ（ARGUMENT_MODEL.md §1）", () => {
+    // B_LINK なのに順序が無い
+    expect(ArgumentNode.safeParse({ ...claim, nodeType: "B_LINK", linkOrder: null }).success).toBe(
+      false,
+    );
+    // B_LINK 以外なのに順序を持っている
+    for (const nodeType of ["A_OBSERVATION", "C_IMPACT", "OTHER", null]) {
+      expect(ArgumentNode.safeParse({ ...claim, nodeType, linkOrder: 1 }).success).toBe(false);
+    }
+  });
+
+  it("linkOrder は正の整数（0 や小数は因果の順序にならない）", () => {
+    for (const linkOrder of [0, -1, 1.5]) {
+      expect(ArgumentNode.safeParse({ ...claim, linkOrder }).success).toBe(false);
     }
   });
 
@@ -123,13 +145,15 @@ describe("ArgumentNode", () => {
 });
 
 describe("effect_kind の語彙（ARGUMENT_MODEL.md §2）", () => {
-  it("ATTACKS の9種が §2.1 の表と一致する", () => {
+  it("ATTACKS の11種が §2.1 の表と一致する", () => {
     expect(AttackEffectKind.options).toEqual([
       "not_true",
       "not_unique",
       "not_necessary",
       "no_link",
       "no_solvency",
+      "alternative_solves",
+      "not_solvent",
       "not_important",
       "value_turn",
       "evidence_weak",
@@ -137,32 +161,52 @@ describe("effect_kind の語彙（ARGUMENT_MODEL.md §2）", () => {
     ]);
   });
 
-  it("DEFENDS の4種が §2.2 の表と一致する", () => {
+  it("DEFENDS の7種が §2.2 の表と一致する", () => {
     expect(DefendEffectKind.options).toEqual([
       "re_evidence",
       "re_explain",
       "counter_example",
       "mitigate",
+      "re_link",
+      "concede",
+      "alt_limited",
     ]);
   });
 
-  it("EffectKind は両者の和で、重複が無い", () => {
-    expect(EffectKind.options).toEqual([...AttackEffectKind.options, ...DefendEffectKind.options]);
-    expect(new Set(EffectKind.options).size).toBe(EffectKind.options.length);
+  it("ANSWERS の2種が §2.3 の表と一致する", () => {
+    expect(AnswerEffectKind.options).toEqual(["admits", "declines_to_answer"]);
   });
 
-  it("各 Attack の主な対象 role が §2.1 の表と一致する", () => {
-    expect(ATTACK_TARGET_ROLE).toEqual({
-      not_true: "present",
-      not_unique: "present",
-      not_necessary: "present",
-      no_link: "effect",
-      no_solvency: "effect",
-      not_important: "importance",
-      value_turn: "importance",
-      evidence_weak: "evidence",
-      logic_jump: "evidence",
+  it("EffectKind は3者の和（20値）で、重複が無い", () => {
+    expect(EffectKind.options).toEqual([
+      ...AttackEffectKind.options,
+      ...DefendEffectKind.options,
+      ...AnswerEffectKind.options,
+    ]);
+    expect(new Set(EffectKind.options).size).toBe(EffectKind.options.length);
+    expect(EffectKind.options).toHaveLength(20);
+  });
+
+  it("各 Attack の主な対象 node_type が §2.1 の表と一致する", () => {
+    expect(ATTACK_TARGET_NODE_TYPE).toEqual({
+      not_true: "A_OBSERVATION",
+      not_unique: "A_OBSERVATION",
+      not_necessary: "A_OBSERVATION",
+      no_link: "B_LINK",
+      no_solvency: "B_LINK",
+      alternative_solves: "B_LINK",
+      not_solvent: "B_LINK",
+      not_important: "C_IMPACT",
+      value_turn: "C_IMPACT",
+      evidence_weak: "SUPPORT",
+      logic_jump: "SUPPORT",
     });
+  });
+
+  it("ATTACKS の全種別が対象表に載っている（表の取りこぼしを作らない）", () => {
+    expect(Object.keys(ATTACK_TARGET_NODE_TYPE).sort()).toEqual(
+      [...AttackEffectKind.options].sort(),
+    );
   });
 
   it("case_flip は effect_kind ではない（立論での仕事であり rule_flags の候補）", () => {
@@ -183,10 +227,30 @@ describe("FlowLink", () => {
     expect(FlowLink.safeParse({ ...defends, effectKind: "no_link" }).success).toBe(false);
   });
 
+  it("ANSWERS は effectKind が任意（付けなくても、応答の語彙なら付けても通る）", () => {
+    const answers = { ...link, relation: "ANSWERS", effectKind: null };
+    expect(FlowLink.safeParse(answers).success).toBe(true);
+    for (const effectKind of AnswerEffectKind.options) {
+      expect(FlowLink.safeParse({ ...answers, effectKind }).success).toBe(true);
+    }
+    // 任意であっても語彙は閉じている。攻防の語彙は入れられない
+    expect(FlowLink.safeParse({ ...answers, effectKind: "no_link" }).success).toBe(false);
+    expect(FlowLink.safeParse({ ...answers, effectKind: "re_explain" }).success).toBe(false);
+  });
+
+  it("ATTACKS / DEFENDS に応答の語彙は入れられない", () => {
+    expect(FlowLink.safeParse({ ...link, effectKind: "admits" }).success).toBe(false);
+    expect(
+      FlowLink.safeParse({ ...link, relation: "DEFENDS", effectKind: "declines_to_answer" })
+        .success,
+    ).toBe(false);
+  });
+
   it("それ以外の relation は effectKind を持たない", () => {
     const cites = { ...link, relation: "CITES", effectKind: null };
     expect(FlowLink.safeParse(cites).success).toBe(true);
     expect(FlowLink.safeParse({ ...cites, effectKind: "no_link" }).success).toBe(false);
+    expect(FlowLink.safeParse({ ...cites, effectKind: "admits" }).success).toBe(false);
   });
 
   it("comparison を持てるのは COMPARES だけ（ARGUMENT_MODEL.md §5）", () => {
