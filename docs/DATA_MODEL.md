@@ -831,6 +831,12 @@ v07 で人の Decision Chart（`judge_issue_assessments_human.segment_ids`）が
 | `audibility = 'unheard'` を含む | `409 UNHEARD_CITED`、`details.unheardSegmentIds` |
 | 属するステージの `coverage_status <> 'complete'` | `409 GAPPED_STAGE_CITED`、`details.gappedStageNos` と `segmentIds` |
 | `stage_no IS NULL` | `422 NON_STAGE_SEGMENT_CITED`、`details.segmentIds` |
+| 条件6（`rule_flags` に `candidate` が残る） | **v09 に記載なし。専用コードは作らず `400 VALIDATION_FAILED` の想定。P15 で確定**、`details.pendingRuleFlagIds` |
+| 条件8（`strength = 'None'` に `residual_note` が無い） | `400 VALIDATION_FAILED`（Zod の refine と §7 の CHECK）、`details.issueIds` |
+
+> **条件6の応答は保留である。** v09 に記述が無く、本書・`JUDGE_LOGIC.md` §5・`API_SPEC.md` §7.2 の3表とも
+> 同じ保留の文言を置いてある（`HANDOFF.md` 件42-2）。**ここで確定させない。**
+> 実装するのは P15（Rule State Engine）で、そのとき3文書を同時に直す。
 
 AI 参考判定の `winner_suggestion = 'REVIEW_REQUIRED'` は人間 Ballot のロックを**機械的には止めない**。
 人が内容を確認し独立に判定できるためである。UI は Review Gate の未確認を目立たせる（v09 §10.11）。

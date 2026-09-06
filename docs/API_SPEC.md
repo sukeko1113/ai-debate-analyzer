@@ -542,7 +542,7 @@ export const PanelRes = z.object({
 5. 引用された segment の `stage_no` が NULL でない
 6. `status = 'candidate'` のまま放置された `rule_flags` がない
 7. `rule_state` が `INADMISSIBLE_*` の clash event を `reasonGrounds[].segmentIds` が根拠参照していない（P15）
-8. `strength = 'None'` の assessment に `residualNote` がある
+8. `judge_issue_assessments_human` の `strength = 'None'` の行に `residualNote` がある（`issues` の列ではない）
 
 | 条件 | 応答 | `details` |
 | --- | --- | --- |
@@ -550,8 +550,13 @@ export const PanelRes = z.object({
 | 3（`unheard` を含む） | `409 UNHEARD_CITED` | `unheardSegmentIds` |
 | 4 | `409 GAPPED_STAGE_CITED` | `gappedStageNos`、`segmentIds` |
 | 5 | `422 NON_STAGE_SEGMENT_CITED` | `segmentIds` |
-| 6 | v09 に記載なし。専用コードは作らず `400 VALIDATION_FAILED` の想定。P15 で確定 | `pendingRuleFlagIds` |
+| 6 | **v09 に記載なし。専用コードは作らず `400 VALIDATION_FAILED` の想定。P15 で確定** | `pendingRuleFlagIds` |
 | 8 | `400 VALIDATION_FAILED`（Zod の refine と DB の CHECK） | `issueIds` |
+
+> **条件6の応答は保留である。** v09 に記述が無く、本書・`JUDGE_LOGIC.md` §5・`DATA_MODEL.md` §8 の3表とも
+> 同じ保留の文言を置いてある（`HANDOFF.md` 件42-2）。**ここで確定させない。**
+> 実装するのは P15（Rule State Engine）で、そのとき3文書を同時に直す。
+> `ERROR_STATUS` に専用コードは足していない（§0.5 の22件に条件6のコードは無い）。
 
 UI は `details` の id へ直接ジャンプする。
 AI 参考判定が `REVIEW_REQUIRED` でもロックは**止めない**（人が独立に判定できる）。UI は Review Gate の未確認を目立たせる。

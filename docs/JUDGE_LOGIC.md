@@ -235,7 +235,9 @@ Dropped が成立するのは、**応答機会があり、記録が揃ってい�
 6. `rule_flags` に `status = 'candidate'` が残っていない
 7. `rule_state` が `INADMISSIBLE_*` の `clash_events` を、判定理由の段落（`reason_grounds[].segment_ids`）が根拠参照していない
    （明示的 override を作る場合は理由必須。P15）
-8. `Strength = None` の Issue に `residual_note`（残存リスクの記述）がある。「無視できる」で終わらせない
+8. `judge_issue_assessments_human` の `strength = 'None'` の**行**に `residual_note`（残存リスクの記述）がある。
+   「無視できる」で終わらせない。**`issues` テーブルの列ではない**。残存リスクはジャッジごとの判断なので、
+   1ジャッジ1票の assessment 側にしか置けない（`DATA_MODEL.md` §7 の CHECK でも担保）
 
 | 条件 | 応答 |
 | --- | --- |
@@ -243,9 +245,15 @@ Dropped が成立するのは、**応答機会があり、記録が揃ってい�
 | 3（`unheard` を含む） | `409 UNHEARD_CITED`、`details.unheardSegmentIds` |
 | 4 | `409 GAPPED_STAGE_CITED`、`details.gappedStageNos` と `segmentIds` |
 | 5 | `422 NON_STAGE_SEGMENT_CITED`、`details.segmentIds` |
-| 8 | `VALIDATION_FAILED`（Zod の refine）と DB の CHECK |
+| 6 | **v09 に記載なし。専用コードは作らず `400 VALIDATION_FAILED` の想定。P15 で確定**、`details.pendingRuleFlagIds` |
+| 8 | `400 VALIDATION_FAILED`（Zod の refine）と DB の CHECK、`details.issueIds` |
 
 いずれも該当 id を `details` に返し、UI はそこへ直接ジャンプする。
+
+> **条件6の応答は保留である。** v09 に記述が無く、本書・`DATA_MODEL.md` §8・`API_SPEC.md` §7.2 の3表とも
+> 同じ保留の文言を置いてある（`HANDOFF.md` 件42-2）。**ここで確定させない。**
+> 実装するのは P15（Rule State Engine）で、そのとき3文書を同時に直す。
+> `ERROR_STATUS` に専用コードは足していない。
 
 **AI の `REVIEW_REQUIRED` は人間 Ballot のロックを機械的に禁止しない。** 人が内容を確認し、独立に判定できるためである。
 ただし UI は Review Gate の未確認を目立たせる（§13）。
