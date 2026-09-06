@@ -5,6 +5,10 @@
 前身プロジェクト whosaid-editor では、`✓`（人が耳で聴いて確定）と `△`（一括適用で埋めただけ）の
 区別を壊さないことが最優先の設計原則だった。本アプリは判定に使うため、その区別をさらに細かく持つ。
 
+本書は v09 §6.7・§7・§8.6・§9.3〜9.4 に追随している（2026-09-06）。三つの絶対原則（v09 §7.1）：
+(1) 自動処理が「人が確認した」印を立てることは決してない、(2) 短い相づちやフィラーを自動削除しない、
+(3) 点検・提案は本体データを自動で書き換えない。
+
 ---
 
 ## 1. 4軸の状態
@@ -25,7 +29,7 @@
 | Pass B（AI転写） | `ai_draft` | `unverified` | `unknown` | `ai_suggested` |
 | Pass C（アンカー照合成功） | 変更なし | `derived` | 変更なし | 変更なし |
 | ステージ確定後の導出 | 変更なし | 変更なし | 変更なし | `rule_derived` |
-| whosaid-editor取り込み | 元の値を保存（§4） | 同左 | `unknown` | 同左 |
+| whosaid-editor取り込み | 元の値を保存（§4） | 同左 | `unknown` | **常に `ai_suggested`**（§4。`reviewed` は写さない） |
 
 ### 1.2 `unknown` の扱い（v04で確定）
 
@@ -39,6 +43,10 @@
 
 Judge Viewで `unknown` を隠すと、レビュー前は何も読めなくなり、作業が始められない。
 だから隠さない。代わりに**ロックの段階で止める**。
+
+ロックを止めるのは `unknown` だけではない。`unheard` の引用、欠損ステージ（`coverage_status ≠ complete`）の引用、
+12ステージ外（`stage_no` NULL）の引用、`candidate` のままの `rule_flags`、`Strength = None` に残存リスクの記述が無いこと、
+も止める。8条件と応答コードは `DATA_MODEL.md` §8 に集約してあり、ここでは繰り返さない。
 
 `unknown` へ戻すAPIは存在しない。初期値としてのみ存在する。
 `clear` / `partial` / `unheard` のいずれかを人が選んだ時点で、二度と `unknown` にはならない。
@@ -111,8 +119,8 @@ DBでも担保する。`transcript_segments` に `audibility_set_by` を持ち�
 | --- | --- | --- |
 | `segments[].start` / `end` | `start_ms` / `end_ms` | 秒 → ミリ秒 |
 | `segments[].text` | `text_ai`（`text_edited` が true なら `text_human`） | 人手修正を人手として引き継ぐ |
-| `segments[].reviewed` | `role_status`: true→`human_confirmed` / false→`ai_suggested` | `✓` と `△` の意味論を保存 |
-| `segments[].time_reviewed` | `time_status`: true→`human_verified` | |
+| `segments[].reviewed` | **`import_meta.whosaid_reviewed`（`role_status` には写さない）** | 話者割当を人が確認した印。本アプリの座席確定とは別物（§4.1） |
+| `segments[].time_reviewed` | `time_status`: true→`human_verified` | どちらも「人が時刻を耳で確かめた」印なので写す |
 | `segments[].orig_start` / `orig_end` | `ai_start_ms` / `ai_end_ms` | AIが出した元の時刻を残す |
 | `segments[].cluster` / `chunk` | `import_meta` | 参考情報として保持のみ |
 | `speakers[]` | **取り込み時に人が AFF/NEG・A1〜N4 へ対応づける** | 名簿と競技上の役割は別物。自動対応づけしない |
@@ -122,6 +130,16 @@ DBでも担保する。`transcript_segments` に `audibility_set_by` を持ち�
 
 ### 4.1 取り込み時の規則
 
+- **`reviewed` を `role_status` に写さない（v06 で修正。v09 §6.7）。**
+  v05 は `reviewed: true` なら `role_status = human_confirmed` にすると書いていた。これは §7.1 の第一原則
+  「自動処理が『人が確認した』印を立てることは決してない」に正面から反する。
+  whosaid 側の `reviewed` は「話者割当を人が確認した」印であり、本アプリの `role_status` は
+  「ステージと発言者（A1〜N4）の割当」を指す。同じ表の `speakers[]` の行が言うとおり、
+  座席への対応づけは取り込み時点ではまだ行われていない。したがって**取り込み直後の `role_status` は `ai_suggested`** のままとし、
+  人が座席へ対応づけた時点で `human_confirmed` になる。v05 が写し先に書いていた `bulk_applied` は
+  `role_status` の値域（§1）に無い値だったため削除した。
+- `time_reviewed → time_status = human_verified` は残す。どちらも「人が時刻を耳で確かめた」印である。
+- `speakers[]` は座席への対応づけの**入力としてのみ**使い、ラベルそのものを保存しない（`TRANSCRIPTION.md` §2.1）。
 - **対応スキーマは schema 5 に固定する。** 他バージョンは明示的に拒否する。
 - 変換層は1箇所（`packages/core/src/import/whosaid.ts`）に集約する。散らさない。
 - 取り込んだ `human_*` の状態は、以後の再解析で上書きしない。
@@ -153,4 +171,32 @@ DBでも担保する。`transcript_segments` に `audibility_set_by` を持ち�
 
 - **AIの出力は必ず `suggested` に入る。** これを構造で保証する（`JUDGE_LOGIC.md` §2）。
 - `excluded` にできるのは人だけ。`rule_flags` が `confirmed` になった結果として遷移する。
+- 同じ4値が `issues` / `argument_nodes` / `flow_links` / `summary_links` / **`clash_events.status`** を律する（v09 §12.1）。
+  `clash_events.status` を書けるのは `POST /clash-events/{id}/review` だけ。
+  `rule_flags.status`（`candidate` / `confirmed` / `rejected`）は**別語彙**である（`JUDGE_LOGIC.md` §3）。
+
+### 6.1 座席結び付けの状態（v07）
+
+`match_members.seat_binding_status` は5つ目の軸に相当する（v09 §8.6）。
+
+| 値 | 意味 | 誰が書けるか |
+| --- | --- | --- |
+| `ai_suggested` | 自己紹介ラウンドの名乗りと担当宣言から AI が提案した | AI |
+| `rule_derived` | 各スピーチ冒頭の名乗りと担当者表の検算で矛盾が無かった | サーバ |
+| `human_confirmed` | 人が名簿と照合して確定した | **人の操作のみ** |
+
+名乗り区間（`intro_segment_id`）が未特定のまま `human_confirmed` にする要求は `400 VALIDATION_FAILED`。
+`display_name` を推測で埋めない。
+
+### 6.2 三つを混ぜない
+
+レビュー状態が「空白」に見える理由は三つあり、判定材料になるのは一つだけである（v09 §9.3）。
+
+| 事象 | 印 | 判定材料になるか |
+| --- | --- | --- |
+| 応答しなかった | `flow_links.relation = DROPS`（`suggested` で導出） | **なる** |
+| 聞き取れなかった | `audibility = unheard`（人だけが書く）＋ `rule_flags.audibility_gap` | ならない。DROPS を導出しない |
+| 記録が無い | `stage_segments.coverage_status ≠ complete`（`missing` は人だけが書く）＋ `rule_flags.stage_coverage_gap` | ならない。DROPS を導出しない |
+
+復旧の手段も違う。記録が無ければ音声の入れ直し、聞き取れなかったなら聞き直し。
 - `excluded` のノードも削除しない。解説には「なぜ除外されたか」として残す。
