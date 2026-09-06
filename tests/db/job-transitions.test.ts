@@ -176,7 +176,11 @@ describe("transcription_jobs の状態遷移トリガ", () => {
 
         if (actual !== expected) {
           const got =
-            actual === true ? "許した" : actual === false ? "拒んだ（AD003）" : `別の例外 ${actual}`;
+            actual === true
+              ? "許した"
+              : actual === false
+                ? "拒んだ（AD003）"
+                : `別の例外 ${actual}`;
           disagreements.push(`${from} → ${to}: TS は ${expected ? "許す" : "拒む"}、DB は ${got}`);
         }
       }
