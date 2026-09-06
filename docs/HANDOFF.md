@@ -988,3 +988,124 @@ v09 は正本になったが、分割文書と Zod はまだ v05 系列である
 
 判断が要る点：1 と 2 を1つの PR にまとめるか。文書だけの PR は CI が何も検証しないので、
 2 と合わせたほうが「文書とコードの一致」を `test:unit` で確かめられる。ただし差分が大きくなる。
+
+→ **判断済み（2026-09-06・ユーザー）。1 と 2 は別 PR にした。** 1 = **P4.1**（分割文書のみ・完了）、
+2 = **P4.2**。テストが逐語で固定している表だけを P4.2 へ回し、文書側に【P4.2 で置換】の注記を置くことで、
+P4.1 の間も「テストの見出しが指す表」と実装が一致し続ける。詳細は件41。
+
+### 件41 分割文書の v09 追随（P4.1）を完了した — 判断済み（2026-09-06・ユーザー）
+
+`docs/*.md` 10本を `BASIC_DESIGN_v09.md` に追随させた。**コードは1行も触っていない**
+（`git diff --name-only 6ae588e HEAD` が `docs/*.md` 12本だけであることを確認した）。
+以下は次の PR（P4.2）が読む前提である。
+
+#### a. 【要判断】1〜7 の決定（すべて計画の推奨案どおり）
+
+| # | 問い | 決定 |
+| --- | --- | --- |
+| 1 | 2本目の PR の名前と範囲 | P4 と P4.5 の間に `P4.1 分割文書の v09 追随` と `P4.2 スキーマ・Zod・テストの v09 追随` を置く。**P4.2 の範囲は「既に Zod / DB にあって v09 と食い違う語彙」だけ**。新設テーブル群（`clash_events` 等）は v09 §17.3 どおり P1.5 / P11 / P12 に残す。`henda-20.json` の `self_introduction` は P4.2（v09 §13.1 の「P7.5」は正誤 g として直した） |
+| 2 | `ARGUMENT_MODEL §1` の role 5値表・`§5.1` の `flow_links.comparison`・`HENDA_RULESET §4` の「保存する role は5値」段落 | 指定の3表と同じ扱い。**表は P4.2、本文の A/B/C 説明は P4.1**。P4.1 の間は「本文は A/B/C・表は旧5値＋注記」という過渡状態になるが、`flow.test.ts` の見出しが指す表と実装は一致し続ける |
+| 3 | `case_flip` | v09 に語が無く `RuleFlagType` 15値にも無い。`rule_flags` の候補という記述を消し、「立論での case flip は `new_argument` 候補＋Rule State `INADMISSIBLE_NEW_*` として扱う」に書き換えた。`HENDA_RULESET §5` の「できないこと」としての記述は残した |
+| 4 | v09 本文の正誤 a〜i | **P4.1 で v09 本文を最小修正**（`ff2e22e`）。版は上げず、冒頭の改訂履歴に「v09 正誤（2026-09-06）」として一覧を残した。「設計書の改訂は直前の版を複製して差分を当てる」は新版を作るときの規則であり、正本の誤記訂正はその対象外と解釈した |
+| 5 | M54 / M58 の HTTP 状態 | **400 `VALIDATION_FAILED`**（改訂履歴 3 が後の決定。正誤 a） |
+| 6 | `transcript_segments` の `UNIQUE(match_id, stage_no, idx)` が `stage_no` NULL でどう振る舞うか | v09 に記述が無い。`UNIQUE NULLS NOT DISTINCT` とし、`DATA_MODEL.md §5` に「v09 未記載。**P7.5 で確定**」の印を付けた |
+| 7 | `TASKS.md` に足す PR を12本に絞るか17本にするか | **17本**（`TASKS.md` と v09 §17.3 を一致させ、次回の差分を無くす） |
+
+#### b. v09 本文の正誤 a〜i（`ff2e22e`。採用した側）
+
+| # | 食い違い | 採用側 |
+| --- | --- | --- |
+| a | §18.1 の2行・§17.3 P22 が `panel_size` 偶数／名乗り未特定の `human_confirmed` を 422 としていた | **400 `VALIDATION_FAILED`**（改訂履歴 3・§14.2 が後の決定） |
+| b | §14.1「内部 API は `X-Job-Secret` のみ」 | **`API_SPEC.md §0.2`（実装）**。Vercel Cron はカスタムヘッダを送れないので `Authorization: Bearer $JOB_CRON_SECRET` も受ける |
+| c | §17.5・§17.6・付録F「Supabase CLI」 | **`postgres:16` コンテナ**（`DEV_ENVIRONMENTS.md`・件33） |
+| d | 改訂履歴「§10.12 の5行表」 | **7行**（本文が正しい） |
+| e | §8.2 定型句表に `self_introduction` の行が無く、質疑の文言が長形 | **`henda-20.json` / `ruleset.test.ts` の短形**（`Questions from the Negative`）。`kind` 列と `self_introduction` 行を足した |
+| f | §14.2「エラーコード4件は P12 のスキーマ先行 PR で」 | **P4.2**（機能＝実際に投げる経路は P12 以降） |
+| g | §13.1「`henda-20.json` への追加は P7.5」 | **P4.2** |
+| h | 分割文書が `/judge/decision/lock` を使っていた | **v09 の `POST /judge/ballots/{id}/lock`**。`JUDGE_LOGIC §5` / `DATA_MODEL §8` / `API_SPEC §7` を寄せた |
+| i | §18.1 が `ACCEPTANCE.md` M1〜M43 の上位集合ではない（M9 / M12 / M27〜M43 に対応行が無い） | **ACCEPTANCE の既存行は残す**（v09 側の欠落）。§18.1 に注記した |
+
+#### c. 件39 B の訂正 — `PRIVACY_RETENTION.md §2` は**既に5値**だった
+
+件39 B は「DB CHECK（`0001`）・`schema/match.ts` の `ConsentScope`・`PRIVACY_RETENTION §2` は現在4値」と
+書いていたが、**`PRIVACY_RETENTION.md §2` の表は `expert_reference` を含む5値で書かれていた**（実測）。
+4値なのは次の3点だけで、**P4.2 で直すのはこの3点**である。
+
+- `packages/core/src/schema/match.ts` の `ConsentScope`
+- `drizzle/0001_*.sql` の `consent_scope` CHECK
+- `docs/DATA_MODEL.md` §2（P4.1 で5値に直した）
+
+`PRIVACY_RETENTION.md §2` で直したのは値域ではなく C 列である。「試合終了時に即匿名化」は
+A・B を残したまま C だけを消す操作で保持順序（A→B→C→D）に反するため、**即時匿名化プロファイル**
+（解析完了かつ★G0 相当の確認後に A→B→C を1トランザクションで実行し、音声を再確認できないことを
+取り込み時に表示する）へ書き換えた。
+
+#### d. 1文書1コミット（`6ae588e` の後）
+
+| コミット | 何を追随させたか |
+| --- | --- |
+| `f47c3b1` | 件37〜件40（v08→v09 統合の申し送り） |
+| `ff2e22e` | v09 本文の正誤 a〜i |
+| `d0a2002` | `DATA_MODEL`：§12 のテーブル一覧・列・ビュー5本・RLS 5段階、L1/L2/L3 の新設表、ロック8条件、`judge_issue_assessments_human` への改名 |
+| `825c939` | `ARGUMENT_MODEL`：A/B/C・Support Quality・`attack_type` 多対一対応表・clash event と Clash View |
+| `9dd7de8` | `JUDGE_LOGIC`：§1.1 の L1/L2 書き分け、§5 の8条件、Rule State Engine・Voting Issue・Review Gate・パネル |
+| `38ba558` | `API_SPEC`：ballots・panel・§12 Decision Support API 6本・ロック8条件・P4.5 |
+| `ac7d0de` | `HENDA_RULESET`：§1.1 12ステージの外側、§1.2 ステージ長検査、座席結び付け、RuleFlag 15種の注記、`self_introduction` |
+| `e0c9346` | `TRANSCRIPTION`：話者分離「使わない」、時刻精度、`capabilities`、`kind` 4値、§8 12ステージ外と欠損 |
+| `f4d1ce9` | `REVIEW_SEMANTICS`：whosaid の `reviewed` を `role_status` に写さない、§6.1 座席結び付け、§6.2 三分法 |
+| `f79245d` | `PRIVACY_RETENTION`：即時匿名化プロファイル、名乗り区間の伏せ字対象（二か所） |
+| `4920294` | `ACCEPTANCE`：M44〜M64、H12〜H15、G8〜G10、§3.3 校正フェーズ、§4.6 Gold Dataset v02 |
+| `0da823c` ＋仕上げ | `TASKS`：P4.1 / P4.2 / P4.5 / P1.5 / P7.5 / P7.6 / P11.5 / P11.6 / P12.1〜P12.5 / P13.5 / P17.6 / P22 / P23 / P24 / P24.5 の挿入と順序図の引き直し |
+
+#### e. P4.2 の作業リスト（P4.1 が残した印がそのまま作業単位）
+
+**文書側 — 【P4.2 で置換】／【P4.2 で追加】が7箇所ある。P4.2 の受け入れ基準は「1箇所も残っていないこと」。**
+
+| 文書 | 箇所 | 旧 → 新 |
+| --- | --- | --- |
+| `ARGUMENT_MODEL.md` | §1 の表 | `role` 5値 → `node_type` 4値＋`link_order` |
+| `ARGUMENT_MODEL.md` | §2.1 の表 | ATTACKS 9値 → 11値。「主な対象 role」列 → 「主な対象 node_type」 |
+| `ARGUMENT_MODEL.md` | §2.2 の表 | DEFENDS 4値 → 7値（`re_link` 等）。ANSWERS 2値を新設 |
+| `ARGUMENT_MODEL.md` | §5.1 の保存先 | `flow_links.comparison` → `summary_links` |
+| `HENDA_RULESET.md` | §3 の表 | RuleFlag 9種 → 15種 |
+| `HENDA_RULESET.md` | §4 の段落 | 「保存する role は5値、evidence は別ノード」→ Support Quality |
+| `API_SPEC.md` | §0.5 の表 | 18件 → 22件（`UNHEARD_CITED` / `GAPPED_STAGE_CITED` / `BALLOT_DUPLICATE` / `NON_STAGE_SEGMENT_CITED`） |
+
+**コード側**
+
+- `packages/core/src/schema/flow.ts`：`ArgumentRole` → `NodeType`＋`linkOrder`、`ATTACK_TARGET_ROLE` → `ATTACK_TARGET_NODE_TYPE`、
+  `AttackEffectKind` 11／`DefendEffectKind` 7／`AnswerEffectKind` 2（和 20）、`FlowLink.comparison` → `SummaryLink`、`RuleFlagType` 15値。
+  `flow.ts:48` / `flow.ts:96` 付近の「4構成要素」「role」のコメントも直す
+- `packages/core/src/schema/match.ts`：`ConsentScope` 5値
+- `packages/core/src/http/errors.ts`：`ERROR_STATUS` に4件
+- `packages/core/src/ruleset/schema.ts`：`ChairCueKind` に `self_introduction`
+- `packages/core/src/ruleset/henda-20.json`：自己紹介ラウンドのエントリ
+- `drizzle/`：**既存マイグレーションは書き換えず、新しいマイグレーションで `consent_scope` の CHECK を差し替える**
+- `packages/core/src/schema/*.ts` と `ruleset/schema.ts` のヘッダコメントが `BASIC_DESIGN_v05 §13.x` のまま
+- テスト3本を同時に直す：`packages/core/src/schema/flow.test.ts`（role 5値 `:98`、ATTACKS/DEFENDS `:126-166`、
+  comparison は COMPARES だけ `:192`、RuleFlag 9種 `:252-264`）、`tests/unit/http-errors.test.ts`（`SPEC` を `toEqual`）、
+  `packages/core/src/ruleset/ruleset.test.ts`
+- `npm run generate-schemas` の差分ゼロ
+
+**P4.2 でやってはいけないこと**
+
+- **`ruleset.test.ts` の質疑 pattern を長形へ寄せない。** `henda-20.json` は短形（`Questions from the Negative`）で、
+  v09 §8.2 の表もそちらに直してある（正誤 e）。読み上げの実文言は "… Negative Side" だが、照合は部分一致の短形で行う
+- 新設テーブル（L1 / L2 / L3）をここで足す。それらは P1.5 / P11 / P12
+- 語彙を散発的に足す（`CLAUDE.md`「スキーマの破壊的変更は一括で行う」）
+
+#### f. P4.1 で検証できたこと／できなかったこと — 参考情報
+
+機械で言えたのは次の4つだけである。
+
+- `git diff --stat 6ae588e HEAD -- packages app drizzle fixtures tests scripts schemas .github` が**空**（コードを触っていない）
+- `npm run test:unit` / `typecheck` / `lint` が緑（コード無変更なので当然。P4.1 の範囲外を触っていないことの確認にはなる）
+- 古い語（`judge_decision_assessments` / `/judge/decision` / `role='evidence'` 等）が、履歴として言及している行と
+  【P4.2 で置換】の注記内を除いて残っていないこと
+- **文書間の `§` 相互参照が0件も壊れていないこと**（`docs/*.md` ＋ `CLAUDE.md` の `〜.md §x.y` を全文書の見出し番号と機械照合した）
+
+**文書の妥当性そのものは人の読み合わせでしか確かめられない。** 特に次の2点は機械では言えない。
+
+1. 実装由来の記述（`DATA_MODEL §0/§2.1/§3/§4/§10`、`API_SPEC §0.2/§2/§11`、`PRIVACY §3.1/§4/§5`、
+   `REVIEW_SEMANTICS §1.3`、`ACCEPTANCE M9/M12/M27〜M43`）を v09 の一行要約へ縮めていないこと
+2. v09 内部の食い違いを、分割文書を黙ってどちらかへ寄せる形で解決していないこと（b の表が採用側の記録）
