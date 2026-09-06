@@ -304,7 +304,7 @@ AI が音声から観測できるのは聞き取りやすさ・速度・間・�
 
 | 定型句（部分一致） | `kind` | 対応ステージ | 備考 |
 | --- | --- | --- | --- |
-| `We will now have a brief introductions from the negative side members` | `self_introduction` | — | 開会・自己紹介ラウンドの境界（§1.1）。`match_events(kind='self_introduction')`。**v09 で追加。`henda-20.json` へのエントリ追加と `ChairCueKind` への値追加は P4.2** |
+| `We will now have a brief introductions from the negative side members` | `self_introduction` | — | 開会・自己紹介ラウンドの境界（§1.1）。`match_events(kind='self_introduction')`。v09 で追加 |
 | `Affirmative Constructive Speech` | `stage_start` | 1 | |
 | `Questions from the Negative` | `stage_start` | 2 または 8 | **文言が重複。直前ステージと経過時間で判別** |
 | `Negative Constructive Speech` | `stage_start` | 3 | |

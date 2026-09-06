@@ -163,7 +163,8 @@
               "stage_start",
               "prep",
               "speech_start",
-              "debate_end"
+              "debate_end",
+              "self_introduction"
             ]
           },
           "pattern": {

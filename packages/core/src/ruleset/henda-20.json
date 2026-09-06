@@ -167,6 +167,12 @@
   ],
   "chairCues": [
     {
+      "kind": "self_introduction",
+      "pattern": "We will now have a brief introductions from the negative side members",
+      "stageNo": [],
+      "note": "開会・自己紹介ラウンドの境界（HENDA_RULESET.md §1.1）。①肯定立論の前にあり、計時対象でも判定材料でもない。座席と氏名の結び付けにだけ使う"
+    },
+    {
       "kind": "stage_start",
       "pattern": "Affirmative Constructive Speech",
       "stageNo": [1],

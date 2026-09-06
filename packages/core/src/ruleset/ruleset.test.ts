@@ -113,8 +113,9 @@ describe("chairCues（HENDA_RULESET.md §8）", () => {
     expect(affQ?.stageNo).toEqual([4, 6]);
   });
 
-  it("ステージに紐づかない合図（準備時間・名乗り・終了）も辞書に入っている", () => {
+  it("ステージに紐づかない合図（自己紹介・準備時間・名乗り・終了）も辞書に入っている", () => {
     const kinds = henda20.chairCues.map((c) => c.kind);
+    expect(kinds).toContain("self_introduction");
     expect(kinds).toContain("prep");
     expect(kinds).toContain("speech_start");
     expect(kinds).toContain("debate_end");
@@ -123,10 +124,33 @@ describe("chairCues（HENDA_RULESET.md §8）", () => {
     }
   });
 
-  it("stage_start なのに stageNo が空だと失敗する", () => {
+  it("自己紹介ラウンドの合図は12ステージの外側で、stageNo を持たない（v09 §3.5）", () => {
+    const intro = henda20.chairCues.filter((c) => c.kind === "self_introduction");
+    expect(intro).toHaveLength(1);
+    expect(intro[0]!.stageNo).toEqual([]);
+    // この区間は計時対象でも判定材料でもない。座席と氏名の結び付けにだけ使う。
+    // stage_start と取り違えると、①肯定立論の開始が自己紹介の頭までずれる
+    expect(intro[0]!.pattern).toBe(
+      "We will now have a brief introductions from the negative side members",
+    );
+  });
+
+  it("self_introduction に stageNo を付けると失敗する", () => {
     const result = Ruleset.safeParse(
       broken((r) => {
-        (r.chairCues as Record<string, unknown>[])[0]!.stageNo = [];
+        const cues = r.chairCues as Record<string, unknown>[];
+        cues.find((c) => c.kind === "self_introduction")!.stageNo = [1];
+      }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("stage_start なのに stageNo が空だと失敗する", () => {
+    const result = Ruleset.safeParse(
+      // 添字ではなく kind で選ぶ。先頭は self_introduction であり、そちらは stageNo が空で正しい
+      broken((r) => {
+        const cues = r.chairCues as Record<string, unknown>[];
+        cues.find((c) => c.kind === "stage_start")!.stageNo = [];
       }),
     );
     expect(result.success).toBe(false);

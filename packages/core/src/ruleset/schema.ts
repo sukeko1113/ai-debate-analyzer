@@ -83,8 +83,19 @@ export type StageDef = z.infer<typeof StageDef>;
  * 「Questions from the Negative」は②と⑧、「Questions from the Affirmative」は④と⑥で
  * 文言が同じであり、1対1にすると P6（ステージ推定）で作り直しになる。
  * 文言だけで判別してはならず、直前に確定したステージと経過時間の両方を使う。
+ *
+ * self_introduction は12ステージの外側にある開会・自己紹介ラウンドの合図である
+ * （v09 §3.5）。この区間は計時対象でも判定材料でもないが、座席（A1〜N4）と氏名を
+ * 結び付ける情報が試合を通してここにしか無い。match_events(kind='self_introduction')
+ * の境界として使う。stage_start ではないので stageNo は持たない。
  */
-export const ChairCueKind = z.enum(["stage_start", "prep", "speech_start", "debate_end"]);
+export const ChairCueKind = z.enum([
+  "stage_start",
+  "prep",
+  "speech_start",
+  "debate_end",
+  "self_introduction",
+]);
 export type ChairCueKind = z.infer<typeof ChairCueKind>;
 
 export const ChairCue = z
