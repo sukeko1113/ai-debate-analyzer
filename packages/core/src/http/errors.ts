@@ -4,6 +4,10 @@
  * 応答の形は失敗時 `{ error: { code, message, details } }` の一本だけ。
  * ここに無いコードを route が勝手に足さない。API がセキュリティ境界そのものであり、
  * クライアントはこの表だけを見て分岐する。
+ *
+ * 判定ロック系の4件（UNHEARD_CITED / GAPPED_STAGE_CITED / BALLOT_DUPLICATE /
+ * NON_STAGE_SEGMENT_CITED）は、値だけが先に入っている。実際に投げる経路は P12 以降。
+ * 語彙を散発的に足さないため、スキーマ先行の P4.2 でまとめて入れた（v09 §14.2）。
  */
 
 export const ERROR_STATUS = {
@@ -17,10 +21,18 @@ export const ERROR_STATUS = {
   AUDIBILITY_UNRESOLVED: 409,
   STAGES_NOT_CONFIRMED: 409,
   JOB_ALREADY_RUNNING: 409,
+  /** 根拠segmentに audibility = unheard が含まれている（API_SPEC.md §7.2 条件3） */
+  UNHEARD_CITED: 409,
+  /** 根拠segmentが coverage_status <> 'complete' のステージに属している（同 条件4） */
+  GAPPED_STAGE_CITED: 409,
+  /** 同一ジャッジが同一 match に2票目を入れようとした（1ジャッジ1票） */
+  BALLOT_DUPLICATE: 409,
   NODE_WITHOUT_SEGMENT: 422,
   INVALID_LINK_DIRECTION: 422,
   ISSUE_LIMIT_EXCEEDED: 422,
   UNSUPPORTED_IMPORT_SCHEMA: 422,
+  /** 自己紹介・アナウンス等、stage_no を持たない区間を判定根拠に引こうとした（同 条件5） */
+  NON_STAGE_SEGMENT_CITED: 422,
   RETENTION_PURGED: 410,
   RATE_LIMITED: 429,
   PROVIDER_ERROR: 502,

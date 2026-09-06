@@ -109,16 +109,11 @@ Decision Support API（§12）を認証スコープでも分離する（v09 §14
 
 ### 0.5 エラーコード
 
-> **【P4.2 で追加】** v09 §14.2 は次の4件を足して22件にする。`tests/unit/http-errors.test.ts` が本表を逐語で
-> `ERROR_STATUS` と突き合わせているため、**表への追加は `ERROR_STATUS` とテストと同時（P4.2）** に行う。
-> それまで本表は18件のままで、4件は §7.2 の応答表にだけ現れる。
->
-> | code | HTTP | 意味 |
-> | --- | --- | --- |
-> | `UNHEARD_CITED` | 409 | 根拠segmentに `audibility = unheard` が含まれている（§7.2） |
-> | `GAPPED_STAGE_CITED` | 409 | 根拠segmentが `coverage_status ≠ complete` のステージに属している（§7.2） |
-> | `BALLOT_DUPLICATE` | 409 | 同一ジャッジが同一matchに2票目を入れようとした（§7） |
-> | `NON_STAGE_SEGMENT_CITED` | 422 | 自己紹介・アナウンス等、`stage_no` を持たない区間を判定根拠に引こうとした（§7.2） |
+**22件。** `tests/unit/http-errors.test.ts` が本表を逐語で `ERROR_STATUS` と `toEqual` で突き合わせている。
+**ここへ足したら同じコミットで両方を直す。** 片方だけ足しても、もう片方は静かに通る。
+
+判定ロック系の4件（`UNHEARD_CITED` / `GAPPED_STAGE_CITED` / `BALLOT_DUPLICATE` / `NON_STAGE_SEGMENT_CITED`）は
+P4.2 で値だけ入れた。実際に投げる経路は P12 以降である（v09 §14.2）。
 
 | code | HTTP | 意味 |
 | --- | --- | --- |
@@ -132,10 +127,14 @@ Decision Support API（§12）を認証スコープでも分離する（v09 §14
 | `AUDIBILITY_UNRESOLVED` | 409 | **根拠segmentに `audibility = unknown` が残っている**（§7.3） |
 | `STAGES_NOT_CONFIRMED` | 409 | ステージ未確定でPass Bを起動しようとした |
 | `JOB_ALREADY_RUNNING` | 409 | `failed` 以外のジョブに `retry` を撃った（§3。同じ冪等キーの再送は 200 で既存を返す） |
+| `UNHEARD_CITED` | 409 | 根拠segmentに `audibility = unheard` が含まれている（§7.2 条件3） |
+| `GAPPED_STAGE_CITED` | 409 | 根拠segmentが `coverage_status ≠ complete` のステージに属している（§7.2 条件4） |
+| `BALLOT_DUPLICATE` | 409 | 同一ジャッジが同一matchに2票目を入れようとした（§7。1ジャッジ1票） |
 | `NODE_WITHOUT_SEGMENT` | 422 | `segmentIds` が空 |
 | `INVALID_LINK_DIRECTION` | 422 | relationの方向違反（`JUDGE_LOGIC.md` §4） |
 | `ISSUE_LIMIT_EXCEEDED` | 422 | 片側3件目のIssue |
 | `UNSUPPORTED_IMPORT_SCHEMA` | 422 | whosaid schema 5 以外 |
+| `NON_STAGE_SEGMENT_CITED` | 422 | 自己紹介・アナウンス等、`stage_no` を持たない区間を判定根拠に引こうとした（§7.2 条件5） |
 | `RETENTION_PURGED` | 410 | 保持期限切れで削除済みの層を要求した |
 | `RATE_LIMITED` | 429 | |
 | `PROVIDER_ERROR` | 502 | 転写・LLM providerの失敗。ジョブ経路では `failed` ジョブに落ち、HTTP には出ない |
