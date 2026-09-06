@@ -6,7 +6,7 @@
 
 本書は v09 §10.10〜10.12・§12.5・§14 に追随している（2026-09-06）。エラーコードの正本は §0.5 と
 `packages/core/src/http/errors.ts` の `ERROR_STATUS` で、`tests/unit/http-errors.test.ts` が両者の一致を検査する。
-§0.5 への4件追加は `ERROR_STATUS` とテストと同時（P4.2）に行う。
+§0.5 への4件追加は `ERROR_STATUS` とテストと同時（P4.2）に行った。
 
 ---
 
@@ -171,7 +171,7 @@ export const CreateMatchReq = z.object({
 export const ConsentReq = z.object({
   // 許諾の記録は matches の更新である。§0.3 のとおり expectedVersion を要求する
   expectedVersion: z.number().int(),
-  // 5値（v09 §16.2 / PRIVACY_RETENTION.md §2）。schema/match.ts の ConsentScope と DB の CHECK は P4.2 で追随
+  // 5値（v09 §16.2 / PRIVACY_RETENTION.md §2）。schema/match.ts の ConsentScope と DB の CHECK は P4.2 で追随済み
   scope: z.enum(['practice_only', 'training_material', 'research', 'public', 'expert_reference']),
   obtainedFrom: z.array(z.enum(['student', 'guardian', 'school', 'organizer'])).min(1),
   expiresOn: z.string().date().nullable(),

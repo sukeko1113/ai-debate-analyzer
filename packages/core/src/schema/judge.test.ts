@@ -1,5 +1,5 @@
 /**
- * 判定スキーマ（JUDGE_LOGIC.md §1 / BASIC_DESIGN_v05 §13.3）。
+ * 判定スキーマ（JUDGE_LOGIC.md §1 / BASIC_DESIGN_v09.md §13.3）。
  *
  * 引き分けは型でも表現できない。型レベルの検査は judge.test-d.ts にあり、
  * `npm run typecheck` で落ちる。ここでは実行時の検証を確かめる。

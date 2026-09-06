@@ -1,5 +1,5 @@
 /**
- * ruleset の Zod 定義（BASIC_DESIGN_v05 §13.1）。
+ * ruleset の Zod 定義（BASIC_DESIGN_v09.md §13.1）。
  *
  * ここは「大会ルールを型で強制する」箇所である。実装の都合で緩めない。
  * ルール本文は書かない。条項番号と要約で参照する（HENDA_RULESET.md 冒頭）。

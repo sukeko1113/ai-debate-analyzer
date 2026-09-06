@@ -1,5 +1,5 @@
 /**
- * 判定のドメインスキーマ（BASIC_DESIGN_v05 §13.3 / JUDGE_LOGIC.md）。
+ * 判定のドメインスキーマ（BASIC_DESIGN_v09.md §13.3 / JUDGE_LOGIC.md）。
  *
  * 守ること:
  *   - 引き分けを表現できないこと。winner は AFF か NEG の二択（条項 4.2 / §1.2）

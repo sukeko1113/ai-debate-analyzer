@@ -1,5 +1,5 @@
 /**
- * フローのドメインスキーマ（BASIC_DESIGN_v05 §13.2 / ARGUMENT_MODEL.md §1・§2・§5）。
+ * フローのドメインスキーマ（BASIC_DESIGN_v09.md §13.2 / ARGUMENT_MODEL.md §1・§2・§5）。
  *
  * 守ること:
  *   - ArgumentNode は segmentIds を1つ以上持つ。原音の時刻へ戻れない議論は保存しない

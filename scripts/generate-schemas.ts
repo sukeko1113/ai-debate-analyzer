@@ -1,5 +1,5 @@
 /**
- * Zod スキーマから JSON Schema を生成する（BASIC_DESIGN_v04 §4.1）。
+ * Zod スキーマから JSON Schema を生成する（BASIC_DESIGN_v09.md §13）。
  *
  * schemas/ は生成物である。手書きしない。
  * CI は生成し直して差分ゼロであることを検査する（ACCEPTANCE.md M2）。

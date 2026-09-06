@@ -6,7 +6,7 @@
 したがって保持を5層に分け、**試合単位で「何を、いつ消すか」を指定できる**ようにする。
 
 本書は v09 §16.2〜16.3・§12.1 に追随している（2026-09-06）。`consent_scope` の5値は本書 §2 が正本で、
-`DATA_MODEL.md` §2・`schema/match.ts` の `ConsentScope`・DB の CHECK は P4.2 で5値に揃える。
+`DATA_MODEL.md` §2・`schema/match.ts` の `ConsentScope`・DB の CHECK は P4.2 で5値に揃えた。
 
 ---
 

@@ -5,8 +5,9 @@ DB: Supabase PostgreSQL（東京 ap-northeast-1）
 列の型と CHECK の正本。テーブルの一覧と層の割当は `BASIC_DESIGN_v09.md` §12.1、
 Zod の形は同 §13 を見ること。本書は v09 §12（テーブル一覧・RLS・ビュー）に追随している（2026-09-06）。
 P4 までに実装済みの表は列をそのまま残し、v07〜v09 で足した列は **太字** で示す。
-Zod と DB の CHECK が v09 に追随するのは P4.2（スキーマ先行 PR）であり、それまでは
-`packages/core/src/schema/` と本書に食い違いがある。食い違ったら本書と v09 を正とする。
+Zod と DB の CHECK は P4.2（スキーマ先行 PR）で v09 に追随済みである。
+ただし**新設テーブル（L1 / L2 / L3）はまだ存在しない**。それらは P1.5 / P11 / P12 で作る。
+食い違ったら本書と v09 を正とする。
 
 ---
 
@@ -133,7 +134,7 @@ USING (EXISTS (
 | `created_by`, `created_at` | | |
 
 > `consent_scope` の CHECK（`drizzle/0001`）と `schema/match.ts` の `ConsentScope` は P4 時点で4値であり、
-> P4.2 で `expert_reference` を足す。`panel_size` は P12 で入れる（v09 §17.3。後から一意制約と一緒に足すと移行になる）。
+> `expert_reference` は P4.2 で足した（`drizzle/0005`）。`panel_size` は P12 で入れる（v09 §17.3。後から一意制約と一緒に足すと移行になる）。
 
 > `consent_recorded_at` が null の match に対する転写ジョブ作成は
 > **API（`409 CONSENT_REQUIRED`）とDBトリガの両方で拒否する。**
@@ -536,7 +537,7 @@ API側で必須にし、DB側は遅延制約トリガ（`CONSTRAINT TRIGGER ... 
 | `lock_version` | |
 
 **`comparison` は持たない。** v05 の `flow_links.comparison`（jsonb）は `summary_links` へ分離した（v09 §12.1）。
-`schema/flow.ts` の `FlowLink.comparison` は P4.2 で `SummaryLink` へ書き換える。
+`schema/flow.ts` の `FlowLink.comparison` は P4.2 で `SummaryLink` へ書き換えた。
 
 relationごとに許される from/to の kind をトリガで検証する（`JUDGE_LOGIC.md` §4）。
 

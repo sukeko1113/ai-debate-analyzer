@@ -1144,3 +1144,90 @@ A・B を残したまま C だけを消す操作で保持順序（A→B→C→D�
 **別枠：HEnDA 経験者の確認が要るもの**（`ACCEPTANCE.md` H5 / H13 / G6 / G9 / G10）。
 実物が動く P12 以降。ただし校正フェーズ（pilot 10 / calibration 30〜50 / hold-out 20〜30）には
 人間ジャッジのバロットが要るので、録音の許諾と協力者の確保は開発と並行して進める。
+
+### 件44 スキーマ・Zod・テストの v09 追随（P4.2）を完了した — 判断済み（2026-09-06・ユーザー）
+
+件41 e の作業リストを全部片づけた。文書の【P4.2 で置換】【P4.2 で追加】は0件になっている。
+件42 の2点も同じ PR で扱った。
+
+#### a. 【要判断】1〜4 の決定（すべて計画の推奨案どおり）
+
+| # | 問い | 決定 |
+| --- | --- | --- |
+| 1 | `FlowLink` に v09 §13.2 の `effectivenessAi` / `effectivenessHuman` / `effectivenessSetBy` を入れるか | **入れる**。件41 e の列挙には無いが、`flow_links` テーブルを作るのは P11 で、いま触るのは Zod だけである。`comparison` を落とす同じコミットで v09 §13.2 と形をそろえておけば、P11 で `flow.ts` をもう一度破壊的に触らずに済む |
+| 2 | `SummaryLink` を `generate-schemas` の REGISTRY に足すか | **足す**。`FlowLink.comparison` が消えると比較の形が生成物から丸ごと落ちる。`schemas/summary-link.schema.json` が増えた |
+| 3 | 件42-2（ロック条件6の応答） | **3文書に同じ行を置くが、中身は保留のまま**。v09 本体に記述が無いので、ここで確定させると「v09 を正とし勝手に片方へ寄せない」に触れる。**揃えたのは応答ではなく、保留であることのほう**。`ERROR_STATUS` に専用コードは足していない |
+| 4 | コミット粒度 | **領域ごとに文書＋コード＋テストを1本**。「表の何行がテストのどの行に対応するか」がコミット単位で見える |
+
+追加の判断（ユーザー・同日）：`scripts/generate-schemas.ts` のヘッダも v09 へ直す。
+ブランチは `docs/design-v08` の続きでよい（P4.1 の直接の続き）。
+
+#### b. コミット（8本）
+
+計画では C1〜C9 の9本だったが、**C1 と C2 は1本にまとめた**。`ARGUMENT_MODEL.md` §2.1 の表が
+「主な対象 `node_type`」列（C1）と 11値（C2）の両方を持ち、分けるとコミット内で表と Zod が食い違うためである。
+
+| コミット | 内容 |
+| --- | --- |
+| `3615320` | flow の語彙を v09 §13.2 へ（`node_type` / `link_order` / `ATTACK_TARGET_NODE_TYPE` / `effect_kind` 20値） |
+| `31d2bdc` | 比較を `SummaryLink` へ分離し、`FlowLink` に `effectiveness_*` を入れる |
+| `9f46f16` | `RuleFlagType` 15種 |
+| `e34fca9` | `ERROR_STATUS` 22件 |
+| `1b5d65f` | `ChairCueKind` に `self_introduction`、`henda-20.json` にエントリ |
+| `b826734` | `consent_scope` 5値（`drizzle/0005`） |
+| `85adda3` | 件42 の2点（条件8の主語・条件6の保留） |
+| （本コミット） | ヘッダコメントの版番号、TASKS / HANDOFF |
+
+#### c. 実装中に見つかって直したもの（作業リストに無かった）
+
+1. **`ruleset.test.ts` の「stage_start なのに stageNo が空だと失敗する」が `chairCues[0]` を添字で選んでいた。**
+   `self_introduction` を先頭に足すと、そちらは `stageNo` が空で**正しい**。添字のままだと
+   「壊した ruleset が通ってしまう」ほうへ静かに倒れる。`kind` で選ぶように変えた。
+   **語彙を足すとき、逐語テストだけでなく添字で要素を選んでいる箇所も見ること。**
+2. `DATA_MODEL.md` §6 と `API_SPEC.md` §6 に「`ArgumentRole` は P4.2 で書き換える」が残っていた（注記の7箇所とは別）。
+3. `HENDA_RULESET.md` §8 の表の備考欄に「`henda-20.json` へのエントリ追加は P4.2」が残っていた（同上）。
+4. `ARGUMENT_MODEL.md` §2.3 末尾に「`AnswerEffectKind` の Zod 追加は P4.2」が残っていた（同上）。
+
+#### d. `self_introduction` の pattern — **人の確認待ち**
+
+`henda-20.json` に入れた文言は `We will now have a brief introductions from the negative side members` で、
+v09 §8.2 と `HENDA_RULESET.md` §8 の表から**逐語で写した**（表と JSON がずれないことを優先した）。
+
+**これが実際の読み上げに部分一致するかは機械では言えない。** 手元に実音声が無く、合成 fixture でしか照合できない。
+質疑と違い、この文言は実試合1本からしか採れていない。**P6（ステージ推定）で人が実音声に当てて確認すること。**
+長すぎて当たらない場合は短形（`brief introductions from the negative side` 等）へ縮める。
+そのときは v09 §8.2・`HENDA_RULESET.md` §8・`henda-20.json`・`ruleset.test.ts` の4箇所を同時に直す。
+
+質疑の pattern は短形（`Questions from the Negative`）のまま触っていない（件41 e の注意どおり）。
+
+#### e. 機械で言えたこと／言えなかったこと
+
+言えたのは次の5つ。
+
+- `test:unit`（252）/ `test:db`（130）/ `typecheck` / `lint` が緑
+- `npm run generate-schemas` の再生成後に `git diff --exit-code schemas/` が通る
+- `drizzle/0005` を流したあと `test:db` が緑で、**二度流しても壊れない**（CI と同じ手順）
+- `docs/*.md` に【P4.2 で置換】【P4.2 で追加】が残っていない
+- `ArgumentRole` / `ATTACK_TARGET_ROLE` / `BASIC_DESIGN_v05 §13` がコードから消えている
+
+言えなかったこと：
+
+- **20値の `effect_kind` と15種の `RuleFlagType` が実試合の現象を正しく切り分けているか。**
+  Gold Dataset と実試合の検証（P11 以降・★G0）でしか言えない
+- `self_introduction` の pattern が実音声に当たるか（上記 d）
+- 文書の表と v09 の対応が正しいか。件43 の読み合わせが残っている
+
+#### f. 次に読む人への注意
+
+- **`docs/design-v08` に P4.1 と P4.2 が両方乗っている。** `main` への取り込み順は未決である。
+  分けたい場合は `git log main..HEAD` で P4.1 側（`6ae588e`〜`0da823c` ＋仕上げ）と
+  P4.2 側（`3615320` 以降）の境界を見ること。
+- **`tests/db/job-transitions.test.ts` が `npm run format` に落ちる。** P4.2 とは無関係の既存の差分で、
+  `ef9153b` 以降に prettier の三項演算子の整形が変わったものと見られる。1行だけ。
+  **CI の `npm run format` はこれで赤になる**ので、PR を出す前に別コミット（`style:`）で直すこと。
+  P4.2 のコミットに混ぜていない。
+- `packages/core/src/env.ts`（`BASIC_DESIGN_v04 §4.4`）と `db/client.ts`（同 §4.2）のヘッダは
+  v04 のままである。件41 e の範囲（`schema/*.ts` と `ruleset/schema.ts`）の外なので触っていない。
+  v09 にも同じ番号の節があるので、直すなら機械的に置換できる。
+- `app/matches/new/match-form.tsx` の `CONSENT_SCOPES` は4値のままにした。`expert_reference` の運用は
+  Phase C（P21）で、いま画面に出すと選べてしまう。値域だけ Zod と DB に入っている状態である。

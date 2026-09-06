@@ -1,5 +1,5 @@
 /**
- * レビュー状態（REVIEW_SEMANTICS.md / BASIC_DESIGN_v05 §13.2）。
+ * レビュー状態（REVIEW_SEMANTICS.md / BASIC_DESIGN_v09.md §13.2）。
  *
  * AI の出力は必ず `suggested` に入る。`confirmed` / `excluded` を書けるのは
  * サーバの API だけであり、AI にもクライアントにも直接書かせない。
