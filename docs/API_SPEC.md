@@ -4,6 +4,10 @@
 `confirmed` / `excluded` / `locked` を書けるのは、ここに定義されたエンドポイントだけ。
 クライアントからDBへ直接書く経路は存在しない（Data APIは無効・`DATA_MODEL.md` §0.1）。
 
+本書は v09 §10.10〜10.12・§12.5・§14 に追随している（2026-09-06）。エラーコードの正本は §0.5 と
+`packages/core/src/http/errors.ts` の `ERROR_STATUS` で、`tests/unit/http-errors.test.ts` が両者の一致を検査する。
+§0.5 への4件追加は `ERROR_STATUS` とテストと同時（P4.2）に行う。
+
 ---
 
 ## 0. 共通仕様
@@ -50,6 +54,19 @@
 この UUID の定義は SQL 関数ただ1つで、RLSポリシーもサーバのガードもそこだけを見る
 （`DATA_MODEL.md` §4.1）。**`sub` がこの値の JWT は 401 で弾く。**
 
+#### 0.2.1 DB ロールと actor の3段階
+
+| 経路 | DB ロール | `app.actor_id` | 書ける範囲 |
+| --- | --- | --- | --- |
+| 人の操作（JWT） | `app_server` | JWT の `sub` | RLS（`match_access`）の範囲 |
+| 内部ランナー（共有秘密） | `app_server` | `public.system_actor_id()` | `transcription_jobs` と `edit_logs` だけ節がある |
+| AI worker（v08 で追加） | **`app_ai_worker`**（**仮置き**。P12.4 で確定） | ジョブと同じ | L2（`argument_node_scores` / `clash_events` / `issue_snapshots`）・L3・`official_decision_support`。**`judge_decisions` / `judge_issue_assessments_human` には GRANT しない** |
+
+AI worker は `/api/v1/judge/ballots/{id}/lock` を呼ぶ権限を持たない。人間 Ballot の確定 API と
+Decision Support API（§12）を認証スコープでも分離する（v09 §14.6）。
+`drizzle/0000` の `ALTER DEFAULT PRIVILEGES` が新テーブルへ自動で `app_server` の全権を付けるため、
+そのままでは分離できない。P12.4 で見直す（`DATA_MODEL.md` §11）。
+
 ### 0.3 楽観ロック（expectedVersion）
 
 `lock_version` を持つ全エンティティの更新は、リクエストボディに `expectedVersion` を必須とする。
@@ -92,26 +109,41 @@
 
 ### 0.5 エラーコード
 
+> **【P4.2 で追加】** v09 §14.2 は次の4件を足して22件にする。`tests/unit/http-errors.test.ts` が本表を逐語で
+> `ERROR_STATUS` と突き合わせているため、**表への追加は `ERROR_STATUS` とテストと同時（P4.2）** に行う。
+> それまで本表は18件のままで、4件は §7.2 の応答表にだけ現れる。
+>
+> | code | HTTP | 意味 |
+> | --- | --- | --- |
+> | `UNHEARD_CITED` | 409 | 根拠segmentに `audibility = unheard` が含まれている（§7.2） |
+> | `GAPPED_STAGE_CITED` | 409 | 根拠segmentが `coverage_status ≠ complete` のステージに属している（§7.2） |
+> | `BALLOT_DUPLICATE` | 409 | 同一ジャッジが同一matchに2票目を入れようとした（§7） |
+> | `NON_STAGE_SEGMENT_CITED` | 422 | 自己紹介・アナウンス等、`stage_no` を持たない区間を判定根拠に引こうとした（§7.2） |
+
 | code | HTTP | 意味 |
 | --- | --- | --- |
-| `VALIDATION_FAILED` | 400 | Zod検証失敗。`details` にissue配列 |
-| `UNAUTHENTICATED` | 401 | JWTなし／不正 |
-| `FORBIDDEN` | 403 | matchのメンバーでない |
-| `NOT_FOUND` | 404 | 対象なし |
-| `VERSION_CONFLICT` | 409 | `expectedVersion` 不一致 |
-| `CONSENT_REQUIRED` | 409 | `consent_recorded_at` が null のまま解析しようとした |
-| `DECISION_LOCKED` | 409 | `locked_at` が入った判定を変更しようとした |
+| `VALIDATION_FAILED` | 400 | Zod検証失敗。`details` にissue配列。`expectedVersion` / `Idempotency-Key` の省略、`panel_size` 偶数、名乗り未特定のままの `seat_binding_status = human_confirmed`、保持レベルの順序違反もこれ（`details` に理由） |
+| `UNAUTHENTICATED` | 401 | JWTなし／不正／期限切れ。`sub` がシステム actor の JWT。内部 API の秘密不一致 |
+| `FORBIDDEN` | 403 | matchのメンバーでない（RLS の WITH CHECK 違反を含む） |
+| `NOT_FOUND` | 404 | 対象なし。**他人の match は 403 ではなく 404**（存在を漏らさない） |
+| `VERSION_CONFLICT` | 409 | `expectedVersion` 不一致。`details.currentVersion` を返す。ジョブの状態遷移違反・試行回数上限もこれ |
+| `CONSENT_REQUIRED` | 409 | `consent_recorded_at` が null のまま解析しようとした（SQLSTATE `AD001`） |
+| `DECISION_LOCKED` | 409 | `locked_at` が入った判定を変更しようとした。未ロックの判定から export しようとした |
 | `AUDIBILITY_UNRESOLVED` | 409 | **根拠segmentに `audibility = unknown` が残っている**（§7.3） |
 | `STAGES_NOT_CONFIRMED` | 409 | ステージ未確定でPass Bを起動しようとした |
-| `JOB_ALREADY_RUNNING` | 409 | 同じ冪等キーのジョブが実行中 |
+| `JOB_ALREADY_RUNNING` | 409 | `failed` 以外のジョブに `retry` を撃った（§3。同じ冪等キーの再送は 200 で既存を返す） |
 | `NODE_WITHOUT_SEGMENT` | 422 | `segmentIds` が空 |
 | `INVALID_LINK_DIRECTION` | 422 | relationの方向違反（`JUDGE_LOGIC.md` §4） |
 | `ISSUE_LIMIT_EXCEEDED` | 422 | 片側3件目のIssue |
 | `UNSUPPORTED_IMPORT_SCHEMA` | 422 | whosaid schema 5 以外 |
 | `RETENTION_PURGED` | 410 | 保持期限切れで削除済みの層を要求した |
 | `RATE_LIMITED` | 429 | |
-| `PROVIDER_ERROR` | 502 | 転写・LLM providerの失敗 |
-| `INTERNAL` | 500 | |
+| `PROVIDER_ERROR` | 502 | 転写・LLM providerの失敗。ジョブ経路では `failed` ジョブに落ち、HTTP には出ない |
+| `INTERNAL` | 500 | 未知の例外。DB のメッセージをクライアントへ返さない |
+
+`panel_size` が偶数、`seat_binding_status` を名乗り未特定のまま `human_confirmed` にする、保持レベルの順序違反は、
+いずれも `VALIDATION_FAILED`（400）で `details` に理由を返す。**専用コードは作らない**（v09 §14.2）。
+`winner_suggestion = REVIEW_REQUIRED` はエラーではなく、200 で返す（§12）。
 
 ---
 
@@ -140,7 +172,8 @@ export const CreateMatchReq = z.object({
 export const ConsentReq = z.object({
   // 許諾の記録は matches の更新である。§0.3 のとおり expectedVersion を要求する
   expectedVersion: z.number().int(),
-  scope: z.enum(['practice_only', 'training_material', 'research', 'public']),
+  // 5値（v09 §16.2 / PRIVACY_RETENTION.md §2）。schema/match.ts の ConsentScope と DB の CHECK は P4.2 で追随
+  scope: z.enum(['practice_only', 'training_material', 'research', 'public', 'expert_reference']),
   obtainedFrom: z.array(z.enum(['student', 'guardian', 'school', 'organizer'])).min(1),
   expiresOn: z.string().date().nullable(),
   note: z.string().max(1000),
@@ -267,6 +300,10 @@ Supabase の署名アップロードトークンは**有効期間が2時間に�
 
 ## 3. Job
 
+**この6本は P4.5 である**（v09 §17.3）。P4 は「DB とドメインまで」（`transcription_jobs` の表・状態遷移トリガ・
+RLS・システム actor・`schema/job.ts`）で完了しており、`app/api/v1/` に job ルートはまだ無い。
+P4.5 で6本を `defineHandler` 経由で通し、`schema/job.ts` をバレルと `generate-schemas.ts` に登録する。
+
 | method | path | 認可 | 備考 |
 | --- | --- | --- | --- |
 | `POST` | `/api/v1/matches/{id}/jobs` | `match:write` | `Idempotency-Key` 必須（§0.4 観点2） |
@@ -368,6 +405,10 @@ export const SetAudibilityReq = z.object({
 - `view=judge` の応答では、`audibility = 'unheard'` の `text` を返さない（`null` にして `hidden: true` を付ける）。
 - `view=judge` の応答では、`audibility = 'unknown'` の segment に `unreviewed: true` を付ける（§7.3）。
 - `*_ai` 列を書き換えるAPIは存在しない。更新できるのはジョブだけ。
+- 12ステージの外側の区間（`stage_no = null`、`event_id` あり。自己紹介・アナウンス・準備時間）も
+  `GET /segments` は返す（`?eventId=` で絞れる。`stageNo` と `eventId` は同時に指定しない）。
+  応答に `isSelfIntroduction` と `coverageStatus`（属するステージのもの）を含める。
+  これらの区間を判定根拠に引くと `422 NON_STAGE_SEGMENT_CITED`（§7.2）。P7.5。
 
 ---
 
@@ -383,17 +424,19 @@ export const SetAudibilityReq = z.object({
 | `PATCH` | `/api/v1/nodes/{id}` | |
 | `POST` | `/api/v1/matches/{id}/links` | |
 | `PATCH` | `/api/v1/links/{id}` | |
-| `POST` | `/api/v1/{entity}/{id}/review` | **`reviewStatus` を書ける唯一の経路** |
+| `POST` | `/api/v1/{entity}/{id}/review` | **`reviewStatus` を書ける唯一の経路**（`entity` は issues / nodes / links / summary-links。clash event の `status` は §12 の `/clash-events/{id}/review`） |
 
 ```ts
 export const CreateNodeReq = z.object({
   issueId: z.uuid().nullable(),
   kind: z.enum(['CLAIM','ATTACK','DEFENSE','QUESTION','ANSWER','SUMMARY_POINT']),
-  role: ArgumentRole.nullable(),   // 5値。BASIC_DESIGN_v05 §13.2 / ARGUMENT_MODEL.md §1
+  nodeType: NodeType.nullable(),                     // A_OBSERVATION / B_LINK / C_IMPACT / OTHER。v09 §13.2 / ARGUMENT_MODEL.md §1
+  linkOrder: z.number().int().positive().nullable(), // B_LINK だけが持つ（refine）
   stageNo: z.number().int().min(1).max(12),
   text: z.string().min(1),
   segmentIds: z.array(z.uuid()).min(1),   // ← 0件は 422 NODE_WITHOUT_SEGMENT
-});
+}).refine(n => n.nodeType === 'B_LINK' ? n.linkOrder !== null : n.linkOrder === null);
+// schema/flow.ts は P4 時点で role: ArgumentRole（5値）。NodeType への一括書き換えは P4.2
 
 export const ReviewReq = z.object({
   expectedVersion: z.number().int(),
@@ -408,31 +451,42 @@ export const ReviewReq = z.object({
 - `label`（`AD1` / `AD2` / `DA1` / `DA2`）
 - `reviewStatus` の初期値（常に `suggested`）
 - relationの方向妥当性の検証
+- ステージ確定後の `seat`（担当者表から導出。§4）
+- AD合計とDA合計の比較、Net sum、counterfactual、Review Gate、Rule State、カテゴリ→数値写像（§12。`JUDGE_LOGIC.md` §2）
 
 > **LLMの応答スキーマに `id` / `label` / `reviewStatus` を含めない。**
 > 含めると、いつか誰かがそのまま保存する（`JUDGE_LOGIC.md` §2.1）。
+> 同じ理由で、LLM に `rule_state` や小数の `value` / `r_or_g` を出させない。
 
 ---
 
 ## 7. Judge
 
-| method | path | 備考 |
-| --- | --- | --- |
-| `POST` | `/api/v1/matches/{id}/judge/runs` | AI候補の生成 |
-| `GET` | `/api/v1/matches/{id}/judge/runs` | 履歴 |
-| `PUT` | `/api/v1/matches/{id}/judge/decision` | 人間の確定（下書き）。`expectedVersion` 必須 |
-| `POST` | `/api/v1/matches/{id}/judge/decision/lock` | **不変条件をここで検査する** |
+人間 Ballot（`judge_decisions` / `judge_issue_assessments_human`）の API。**1ジャッジ1票**であり、
+ballot はジャッジ1人につき1件（`UNIQUE(match_id, decided_by)`）。AI 参考判定の API は §12 に分け、
+認証スコープも分ける（§0.2.1）。
+
+| method | path | 認可 | 備考 |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/matches/{id}/judge/runs` | `match:write` | AI候補（`judge_runs` / `judge_issue_assessments`）の生成。`Idempotency-Key` 必須 |
+| `GET` | `/api/v1/matches/{id}/judge/runs` | `match:read` | 履歴 |
+| `POST` | `/api/v1/matches/{id}/judge/ballots` | `match:write` | 自分の ballot を作る（下書き）。2票目は `409 BALLOT_DUPLICATE` |
+| `PUT` | `/api/v1/judge/ballots/{id}` | `match:write`（`matchIdFrom`） | 自分の ballot の更新。`expectedVersion` 必須。`decided_by` が自分でなければ 404 |
+| `POST` | `/api/v1/judge/ballots/{id}/lock` | `match:write`（`matchIdFrom`） | **不変条件をここで検査する**（§7.2） |
+| `GET` | `/api/v1/matches/{id}/panel` | `match:read` | ビュー `panel_result` からの読み取り専用。**P22** |
 
 ```ts
-export const PutJudgeDecisionReq = z.object({
+export const PutBallotReq = z.object({
   expectedVersion: z.number().int(),
   winner: z.enum(['AFF','NEG']),                   // 引き分けを表現できない
-  votingIssue: z.enum(['AD1','AD2','DA1','DA2']),
-  assessments: z.array(z.object({
+  votingIssue: IssueLabel,
+  assessments: z.array(z.object({                  // 保存先は judge_issue_assessments_human
     issueId: z.uuid(),
     probability: z.enum(['Hi','Lo']),
     value: z.enum(['Large','Small']),
     strength: z.enum(['Strong','Weak','None']),
+    residualNote: z.string().nullable(),           // Strength='None' のとき必須（refine）
+    segmentIds: z.array(z.uuid()),                 // 判定根拠。judge_cited_segments に UNION される
   })).max(4),
   commPoints: z.object({
     aff: z.number().int().min(1).max(5),
@@ -440,29 +494,68 @@ export const PutJudgeDecisionReq = z.object({
   }),
   bestDebater: z.string().max(60).nullable(),
   reason: z.string().min(1),
+  reasonGrounds: z.array(z.object({                // 段落ごとの根拠種別（JUDGE_LOGIC.md §6.2.1）
+    text: z.string().min(1),
+    ground: z.enum(['content','comparison','procedure','delivery','advice']),
+    segmentIds: z.array(z.uuid()).min(1),
+  })).min(1),
+  compareNote: z.string().min(1),                  // 残ったもの／削られたもの
+  isChief: z.boolean(),
 });
+// v09 §13.3 JudgeDecision / IssueAssessment と同じ形。schema/judge.ts への追加は P12
 
 export const LockRes = z.object({
   lockedAt: z.iso.datetime(),
   citedSegmentCount: z.number().int(),
 });
+
+/** GET /panel の応答。行として保存しない（v09 §13.3 PanelResult） */
+export const PanelRes = z.object({
+  matchId: z.uuid(),
+  panelSize: z.number().int().positive(),          // 奇数。偶数は 400 VALIDATION_FAILED
+  ballotsCast: z.number().int().min(0),
+  affVotes: z.number().int().min(0),
+  negVotes: z.number().int().min(0),
+  winner: z.enum(['AFF','NEG']).nullable(),        // ballotsCast < panelSize のとき null
+  dissenting: z.array(z.uuid()),                   // 多数と異なる ballot の id。消さない
+});
 ```
 
-### 7.1 `PUT /judge/decision` のサーバ検証
+### 7.1 `PUT /judge/ballots/{id}` のサーバ検証
 
 - `assessments` の `issueId` が、この match の `issues` に属すること
 - AD合計 と DA合計 の比較を**サーバで計算**し、`winner` と矛盾しないことを警告として返す
   （矛盾していても保存は許す。ジャッジの判断を機械が拒否しない。ただし `warnings` に載せる）
+- `strength = 'None'` の assessment に `residualNote` が無ければ `400 VALIDATION_FAILED`
+- `reasonGrounds` に `ground = 'delivery'` の段落があり、それが Voting Issue / Strength の理由に接続していれば
+  `rule_flags` に `communication_in_content` を **candidate** で立てる。保存は拒否しない（P23）
 - `locked_at` が入っていたら `409 DECISION_LOCKED`
+- AI 参考判定（§12）の値をこの API に自動で流し込む機能は作らない。各欄を人が確認して入力する
 
 ### 7.2 ロック不変条件（重要）
 
-`POST /judge/decision/lock` は、次をすべて満たすときだけ成功する。
+`POST /judge/ballots/{id}/lock` は、次をすべて満たすときだけ成功する（v09 §10.11 の8条件。`JUDGE_LOGIC.md` §5）。
 
-1. `winner` / `votingIssue` / `commPoints` / `reason` が埋まっている
+1. `winner` / `votingIssue` / `commPoints` / `reason` / `reasonGrounds` が埋まっている
 2. `votingIssue` に対応する `issues` が `confirmed` である
-3. **判定根拠として引用された全 segment の `audibility` が `clear` / `partial` / `unheard` のいずれかに人間確定されている**
-4. `status = 'candidate'` のまま放置された `rule_flags` がない（Phase B）
+3. **判定根拠として引用された全 segment の `audibility` が `clear` / `partial` に人間確定されている。`unknown` も `unheard` も不可**
+4. 引用された segment が属するステージの `coverage_status = 'complete'`
+5. 引用された segment の `stage_no` が NULL でない
+6. `status = 'candidate'` のまま放置された `rule_flags` がない
+7. `rule_state` が `INADMISSIBLE_*` の clash event を `reasonGrounds[].segmentIds` が根拠参照していない（P15）
+8. `strength = 'None'` の assessment に `residualNote` がある
+
+| 条件 | 応答 | `details` |
+| --- | --- | --- |
+| 3（`unknown` が残る） | `409 AUDIBILITY_UNRESOLVED` | `pendingSegmentIds` |
+| 3（`unheard` を含む） | `409 UNHEARD_CITED` | `unheardSegmentIds` |
+| 4 | `409 GAPPED_STAGE_CITED` | `gappedStageNos`、`segmentIds` |
+| 5 | `422 NON_STAGE_SEGMENT_CITED` | `segmentIds` |
+| 6 | v09 に記載なし。専用コードは作らず `400 VALIDATION_FAILED` の想定。P15 で確定 | `pendingRuleFlagIds` |
+| 8 | `400 VALIDATION_FAILED`（Zod の refine と DB の CHECK） | `issueIds` |
+
+UI は `details` の id へ直接ジャンプする。
+AI 参考判定が `REVIEW_REQUIRED` でもロックは**止めない**（人が独立に判定できる）。UI は Review Gate の未確認を目立たせる。
 
 ### 7.3 なぜ `unknown` でロックを止めるのか
 
@@ -470,13 +563,16 @@ export const LockRes = z.object({
 これを許すと、AIの文字起こしを人間が聞いたものとして判定に使ってしまう。
 本設計が最も避けたい事故がここで起きる。
 
-- 「判定根拠として引用された segment」= `judge_decisions` から辿れる
-  `issues` → `argument_nodes` → `node_segments` の集合（`reviewStatus = confirmed` のもの）
+- 「判定根拠として引用された segment」= ビュー `judge_cited_segments`。
+  `judge_decisions` → `issues`(confirmed) → `argument_nodes`(confirmed) → `node_segments` の集合と、
+  `judge_issue_assessments_human.segment_ids` の**和集合**（`DATA_MODEL.md` §8。API と DB トリガが同じビューを読む）
 - 未確定が残る場合は `409 AUDIBILITY_UNRESOLVED` を返し、
   `details.pendingSegmentIds` に該当segmentのidを返す。UIはそこへ直接ジャンプする。
 - **Judge Viewでは `unknown` の本文を隠さない。**
   隠すとレビュー前は何も読めなくなる。`unreviewed: true` を付けて「未確認」と明示し、
   ロックの段階で止める。
+- `unheard`・欠損ステージ・12ステージ外の区間も同じ理屈で止める。「ジャッジが実際に得た情報」の外にあるものを
+  判定材料にしない（`JUDGE_LOGIC.md` §5.2）。
 
 ---
 
@@ -493,12 +589,15 @@ export const CreateExportReq = z.object({
     'transcript','flow_sheet','judge_sheet_official','judge_sheet_extended',
     'decision_memo','commentary','audit_trail',
   ])).min(1),
-  judgeDecisionId: z.uuid(),   // locked 済みのもののみ
+  judgeDecisionId: z.uuid(),          // locked 済みのもののみ
+  decisionSupportId: z.uuid().nullable(),   // 併記する AI 参考判定。null なら AI 欄を省く
 });
 ```
 
 - `judgeDecisionId` が `locked_at` を持たない場合は `409 DECISION_LOCKED`（未ロックのため出力不可）。
-- 同じ `judgeDecisionId` ＋ 同じ `templateVersion` からは、**何度でも同じ生成物が出る**（G7）。
+- 同じ `judgeDecisionId` ＋ 同じ `decisionSupportId` ＋ 同じ `templateVersion` からは、**何度でも同じ生成物が出る**（G7）。
+  `export_runs` に3つとも記録する（`DATA_MODEL.md` §7）。
+- 成果物では AI 参考判定と人間 Ballot を明示分離し、結論が違えば並記する（`JUDGE_LOGIC.md` §6.2）。
 
 ---
 
@@ -510,6 +609,8 @@ export const CreateExportReq = z.object({
 
 - `schema !== 5` は `422 UNSUPPORTED_IMPORT_SCHEMA`
 - `speakers[]` → `A1`〜`N4` の対応づけはリクエストで受け取る（人が画面で決めた結果）。**自動対応づけしない**
+- `segments[].reviewed` は `role_status` に写さない（`import_meta.whosaid_reviewed` に保持）。
+  取り込み直後の `role_status` は `ai_suggested`（`REVIEW_SEMANTICS.md` §4）
 
 ---
 
@@ -526,6 +627,9 @@ export const PurgeReq = z.object({
   confirmPhrase: z.string(),   // 試合名の入力を要求する（誤操作防止）
 });
 ```
+
+- 順序（A → B → C → D）に反する `levels` は `400 VALIDATION_FAILED`（`details` に理由）。専用コードは作らない
+- 即時匿名化プロファイル（`anonymize_c_immediately`）の試合では、A・B・C を1回の `purge` で1トランザクションとして実行する
 
 詳細は `PRIVACY_RETENTION.md`。
 
@@ -641,3 +745,38 @@ export const GET = defineHandler({
 7. **`edit_logs` への追記**（`before` / `after` / `actor`）
 
 **素の `route.ts` を直接書かない。** 書くと1〜7のどれかが抜ける。
+
+---
+
+## 12. Decision Support（AI 参考判定。v08 で追加）
+
+L1 AI Decision Support と L2 の API。**人間 Ballot（§7）とは別 API・別権限**（§0.2.1）。
+すべて `defineHandler` を通す。ベースパスは §0.1 のとおり `/api/v1`（v08 は `/api/` と書いていたが規約違反）。
+列は P1.5、機能は P11.5 / P11.6 / P12.1（v09 §17.3）。
+
+| method | path | 認可 | 備考 |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/matches/{id}/scoring/run` | `match:write` | confirmed Flow から L2 カテゴリ候補（`argument_node_scores`）と `clash_events` を生成するジョブを投入。`Idempotency-Key` 必須（§0.4 観点2） |
+| `POST` | `/api/v1/matches/{id}/decision-support/recalculate` | `match:write` | `scoring_config` 固定で P / V / Strength、Net sum、counterfactual を**決定的に**再計算。同入力・同 config で差分ゼロ |
+| `GET` | `/api/v1/matches/{id}/decision-support` | `match:read` | 最新の AI 参考判定と Review Gate |
+| `POST` | `/api/v1/clash-events/{id}/review` | `match:write`（`matchIdFrom` で event → match） | event 種別・Rule State 候補を人が confirm / reject。**`clash_events.status` を書ける唯一の経路** |
+| `POST` | `/api/v1/matches/{id}/rule-state/rebuild` | `match:write` | confirmed event から Rule State をサーバ再判定（RuleFlag を `rejected` にした後など。`JUDGE_LOGIC.md` §3.2） |
+| `GET` | `/api/v1/matches/{id}/hp-ledger` | `match:read` | L3 HP タイムライン。常に「AI推定」表記 |
+
+```ts
+export const ClashEventReviewReq = z.object({
+  expectedVersion: z.number().int(),
+  status: z.enum(['reviewed','confirmed','excluded']),
+  reason: z.string().max(500).optional(),          // excluded のとき必須
+});
+
+/** GET /decision-support の応答。v09 §13.4 DecisionSupport と同じ形（official_decision_support の1行） */
+export const DecisionSupportRes = DecisionSupport;
+```
+
+- `winner_suggestion = 'REVIEW_REQUIRED'` は **HTTP エラーではない**。正常な Decision Support 状態として 200 で返し、
+  `reviewReasons[]`（`ReviewReasonCode` 6値と対象 segment / event）に理由を含める（`JUDGE_LOGIC.md` §13）。
+- サーバが決めること：`value`（level からの写像）、`r_or_g`、`rule_state`、Net sum、counterfactual、Review Gate。
+  LLM の応答スキーマに小数や `rule_state` を含めない。
+- `recalculate` は `official_decision_support` に版を持って追記する。過去行を更新しない。
+- AI worker（`app_ai_worker`）は `/judge/ballots/{id}/lock` も `PUT /judge/ballots/{id}` も呼べない。
