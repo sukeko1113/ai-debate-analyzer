@@ -33,7 +33,7 @@ v08の評価エンジンを、P0〜P4で実装済みの基盤と分割文書の�
 - §13.2〜13.3：`Uuid = z.uuid()`、`Issue` の side refine、`AttackEffectKind` / `DefendEffectKind` の分離、`ComparisonAxis.favors` / `source`、`STRENGTH_ORDER`、`z.iso.datetime()`、`judge.test-d.ts` による引き分けの型検査
 - §9.2・§12.1・付録A：`role` 3値と `FlowLink` 5列への巻き戻りを直し、A/B/C へ書き換え
 - §12.1：`imports` / `align_words` / `transcription_jobs`（kind 4種）/ `rule_flags` / `summary_links` / `judge_issue_assessments`（AI案）/ `match_access` / `api_idempotency_keys` / `match_retention_policies` / `retention_events` / `prep_segments` / `node_segments` を復元。共通テーブルの列定義を復元
-- §10.5：③否定立論にアタック相当が含まれていた場合の⑦の例外。§10.11：「判定根拠として引用された segment」の定義（`judge_cited_segments` ビュー）。§10.12：サーバ権威の5行表。§12.5：RLS の3段階
+- §10.5：③否定立論にアタック相当が含まれていた場合の⑦の例外。§10.11：「判定根拠として引用された segment」の定義（`judge_cited_segments` ビュー）。§10.12：サーバ権威の7行表。§12.5：RLS の3段階
 - §14.2：エラーコードは `API_SPEC.md §0.5` の18件が正本。v08 が落としていた7件を戻す。§14.6：`/api/v1/` へ
 - 語彙の確定：`consent_scope` は5値（`practice_only` / `training_material` / `research` / `public` / `expert_reference`）。`chairCues[].kind` は実装の4値＋`self_introduction`。`flow_links.effect_kind` は実装の 9＋4 値に v08 の 7 値を足した 20 値。`clash_events.attack_type` は別語彙とし、§9.6 に多対一の対応表を置く
 - §17.2〜17.3：Phase A は「列は4 Issue ぶん先行、機能は AD1/DA1 で★G0」。P4 を「DB とドメインまで」と再定義し、job API を P4.5 として新設。P12.2 / P12.3 / P15 は★G0 の後
@@ -50,6 +50,18 @@ v08の評価エンジンを、P0〜P4で実装済みの基盤と分割文書の�
 7. `evidence_status` は `verified` / `unverifiable` / `not_cited` の 3 値（§13.4）
 8. AI worker の DB ロール名は `app_ai_worker`。**仮置き**であり、P12.4 で `ALTER DEFAULT PRIVILEGES` の見直しと合わせて確定する（§12.5）
 9. P1.5（scoring schema / config）は P5 の前に置く。`TranscriptionProvider.capabilities` が P5 の provider 実装より先に要るため（§17.3）
+
+*v09 正誤（2026-09-06。分割文書の追随 PR で見つけた本書内部の食い違い。版は上げず本文を直した）*
+
+- a. `panel_size` が偶数、`seat_binding_status` を名乗り未特定のまま `human_confirmed` にする、の応答は **400 `VALIDATION_FAILED`**（上記 3・§14.2）。§18.1 の2行と §17.3 P22 が 422 と書いていたのを直した
+- b. 内部 API の認証は `X-Job-Secret` に加えて Vercel Cron 用の `Authorization: Bearer $JOB_CRON_SECRET` を受ける（`API_SPEC.md §0.2`。P4 で実装済み）。§14.1 が「`X-Job-Secret` のみ」と書いていたのを直した
+- c. ローカルの DB は Supabase CLI ではなく **`postgres:16` コンテナ**（`scripts/install_pkgs.sh` / `db-bootstrap.sql`。`DEV_ENVIRONMENTS.md`・`HANDOFF.md` 件33）。§17.5・§17.6・付録F の記述を直した
+- d. §10.12 のサーバ権威表は5行ではなく **7行**（改訂履歴の記述を直した）
+- e. §8.2 の定型句表に `self_introduction` の行が無く、質疑の文言が `henda-20.json` / `ruleset.test.ts` の短形（`Questions from the Negative`）と違っていたのを直した
+- f. エラーコード4件を `ERROR_STATUS` へ足すのは P12 ではなく **P4.2（v09 語彙追随のスキーマ先行 PR）**。§14.2 を直した
+- g. `henda-20.json` への `self_introduction` エントリ追加も P7.5 ではなく **P4.2**。§13.1 のコメントを直した
+- h. 判定ロックの API パスは `POST /judge/ballots/{id}/lock`（§10.11・§14.3）で本書が正しい。分割文書側（`JUDGE_LOGIC.md §5` / `DATA_MODEL.md §8` / `API_SPEC.md §7`）を寄せた
+- i. §18.1 の表は `ACCEPTANCE.md` M1〜M43 の上位集合ではない。P3 / P4 の実装で足した M9 / M12 / M27〜M43 に対応する行が本書に無いが、それらは有効である（§18.1 に注記）
 
 > **v08の結論（参照用）**
 > v07で、実試合が示した欠損・自己紹介・複数バロット・表現力混入をスキーマまで取り込んだ。v08では、その上に「AIはどの基準でProbability / Value / Strengthを候補化し、どのclashをVoting Issue候補とし、どこで人間確認へ止まるか」という評価エンジンを統合する。
@@ -690,23 +702,26 @@ Judge Viewでunknownの本文を隠す設計も考えられるが、それでは
 
 辞書はコードに埋め込まず、ruleset packの一部として外部定義する。大会ごとの言い換えに差し替えで対応するためである。
 
-| 定型句（部分一致） | 対応 | 備考 |
-|---|---|---|
-| Affirmative Constructive Speech | ①開始 | — |
-| Questions from the Negative Side | ②または⑧ | 直前ステージで判別 |
-| Negative Constructive Speech | ③開始 | — |
-| Questions from the Affirmative side | ④または⑥ | 直前ステージで判別 |
-| Negative Attack Speech | ⑤開始 | — |
-| Affirmative Attack Speech | ⑦開始 | — |
-| Affirmative Defense Speech | ⑨開始 | — |
-| Negative Defense Speech | ⑩開始 | — |
-| Affirmative Summary Speech | ⑪開始 | — |
-| Negative Summary Speech | ⑫開始 | 最終スピーチ |
-| preparation time | 準備時間 | 1分／2分は前後のステージで決まる |
-| Please say your name and start | スピーチ開始直前 | 計測開始点の手掛かり |
-| The debate is now over | 試合終了 | 以降は判定対象外 |
+| 定型句（部分一致） | kind | 対応 | 備考 |
+|---|---|---|---|
+| We will now have a brief introductions from the negative side members | self_introduction | 開会・自己紹介ラウンドの境界（§3.5） | stageNo を持たない。`match_events(kind='self_introduction')` の境界。v09 で追加 |
+| Affirmative Constructive Speech | stage_start | ①開始 | — |
+| Questions from the Negative | stage_start | ②または⑧ | 直前ステージで判別。短形で照合する（実際の読み上げは "… Negative Side"） |
+| Negative Constructive Speech | stage_start | ③開始 | — |
+| Questions from the Affirmative | stage_start | ④または⑥ | 直前ステージで判別。短形で照合する |
+| Negative Attack Speech | stage_start | ⑤開始 | — |
+| Affirmative Attack Speech | stage_start | ⑦開始 | — |
+| Affirmative Defense Speech | stage_start | ⑨開始 | — |
+| Negative Defense Speech | stage_start | ⑩開始 | — |
+| Affirmative Summary Speech | stage_start | ⑪開始 | — |
+| Negative Summary Speech | stage_start | ⑫開始 | 最終スピーチ |
+| preparation time | prep | 準備時間 | 1分／2分は前後のステージで決まる |
+| Please say your name and start | speech_start | スピーチ開始直前 | 計測開始点の手掛かり |
+| The debate is now over | debate_end | 試合終了 | 以降は判定対象外 |
 
-> **注意** 「Questions from the Affirmative side」は④と⑥の両方で同じ文言が使われる。「Questions from the Negative」も②と⑧で重なる。文言だけでは区別できないため、直前に確定したステージと経過時間の両方を使って決める。ここを取り違えると、以降のフロー全体が1ステージずれる。
+`kind` は §13.1 の `ChairCueKind` 5値。`stage_start` だけが `stageNo` を持つ（1エントリが複数ステージを持てる）。表の文言は `packages/core/src/ruleset/henda-20.json` の `pattern` と一致させる（`ruleset.test.ts` が短形で固定している）。
+
+> **注意** 「Questions from the Affirmative」は④と⑥の両方で同じ文言が使われる。「Questions from the Negative」も②と⑧で重なる。文言だけでは区別できないため、直前に確定したステージと経過時間の両方を使って決める。ここを取り違えると、以降のフロー全体が1ステージずれる。
 
 ### 8.3 担当者表による検証
 
@@ -1321,7 +1336,7 @@ export const StageDef = z.object({
  * self_introduction は v09 で追加（§3.5）。開会・自己紹介ラウンドの合図
  * （"We will now have a brief introductions from the negative side members." 等）を
  * match_events(kind='self_introduction') の境界として使う。
- * henda-20.json へのエントリ追加は P7.5 のスキーマ先行 PR で行う。
+ * henda-20.json へのエントリ追加は P4.2（v09 語彙追随のスキーマ先行 PR）で行う。
  */
 export const ChairCueKind = z.enum([
   'stage_start','prep','speech_start','debate_end',
@@ -1891,13 +1906,13 @@ v03はZodスキーマ・DB・画面・PR分割まで細かく決めていたが�
 | 失敗応答 | { "error": { "code", "message", "details" } } |
 | 認証 | Authorization: Bearer（Supabase Auth JWT）。サーバで検証しactor_idを得る |
 | 認可 | actor_idが対象matchのメンバーであること。トランザクション内でSET LOCAL app.actor_idを発行し、RLSにも同じ値を渡す |
-| 内部API | /api/v1/internal/* は X-Job-Secret のみ。JWTを受け付けない |
+| 内部API | /api/v1/internal/* は共有秘密（`X-Job-Secret`。Vercel Cron はカスタムヘッダを送れないので `Authorization: Bearer $JOB_CRON_SECRET` も受ける）。JWTを受け付けない（`API_SPEC.md §0.2`） |
 | 楽観ロック | lock_versionを持つのは `DATA_MODEL.md §1.1` の11表（matches / match_members / stage_segments / transcript_segments / issues / argument_nodes / flow_links / rule_flags / judge_decisions / match_retention_policies / transcription_jobs）に summary_links を足した12表。media_sources は意図的に持たない（不変・行を更新しない）。これらの更新でexpectedVersionを必須にする。省略は400、不一致は409 |
 | 冪等性 | 副作用のあるPOSTはIdempotency-Keyヘッダを必須にする。再送は既存結果を返す |
 
 ### 14.2 エラーコード
 
-**正本は `API_SPEC.md §0.5` と `packages/core/src/http/errors.ts` の `ERROR_STATUS`** であり、`tests/unit/http-errors.test.ts` が両者の一致を検査している。本表はそれを写したものである。v08 は「主な」として15件を抜粋し、実装済みの7件（`UNAUTHENTICATED` / `NOT_FOUND` / `JOB_ALREADY_RUNNING` / `UNSUPPORTED_IMPORT_SCHEMA` / `RATE_LIMITED` / `PROVIDER_ERROR` / `INTERNAL`）を落としていた。v09 では全件を載せる。P4 までに実装済みは18件、v07 で追加する4件は P12 のスキーマ先行 PR で `ERROR_STATUS` と `API_SPEC.md §0.5` へ同時に足す。
+**正本は `API_SPEC.md §0.5` と `packages/core/src/http/errors.ts` の `ERROR_STATUS`** であり、`tests/unit/http-errors.test.ts` が両者の一致を検査している。本表はそれを写したものである。v08 は「主な」として15件を抜粋し、実装済みの7件（`UNAUTHENTICATED` / `NOT_FOUND` / `JOB_ALREADY_RUNNING` / `UNSUPPORTED_IMPORT_SCHEMA` / `RATE_LIMITED` / `PROVIDER_ERROR` / `INTERNAL`）を落としていた。v09 では全件を載せる。P4 までに実装済みは18件、v07 で追加する4件は P4.2（v09 語彙追随のスキーマ先行 PR）で `ERROR_STATUS` と `API_SPEC.md §0.5` と `tests/unit/http-errors.test.ts` へ同時に足す。機能（実際に投げる経路）は P12 以降。
 
 | code | HTTP | 意味 | 状態 |
 |---|---|---|---|
@@ -2151,7 +2166,7 @@ v07で追加したPR（継承）
 | P7.6 | ステージ長の妥当性検査と欠損の記録 | 規定時間の2倍を超えるステージで stage_duration_anomaly が立つ。coverage_status を人だけが missing にできる | CI＋人 | Phase A（P7の直後） |
 | P12.5 | 欠損ステージの引用禁止 | coverage_status ≠ complete の区間を根拠に引くと 409 GAPPED_STAGE_CITED。該当 stage_no と segment id が返る | CI | Phase A（P12の直後） |
 | P13.5 | Strength=Noneの残存リスクと判定理由の根拠種別 | residualNote 無しの None が422。根拠segmentを持たない段落が生成されない | CI＋経験者 | Phase A（P13の直後） |
-| P22 | パネルとバロット（§10.7） | 同一ジャッジの2票目が409。panel_size が偶数だと422。少数意見が集計後も残る | CI | Phase B |
+| P22 | パネルとバロット（§10.10） | 同一ジャッジの2票目が409。panel_size が偶数だと400 `VALIDATION_FAILED`（§14.2）。少数意見が集計後も残る | CI | Phase B |
 | P23 | 伝達評価の混入検出（§10.6） | ground='delivery' の段落がVoting Issueの理由に使われると communication_in_content が candidate で立つ。自動除外しない | CI | Phase B |
 | P24 | ジャッジ間比較レポート（成果物07） | 一致・不一致とその理由が並ぶ。少数意見の判定理由が省略されない | CI＋人 | Phase C |
 
@@ -2189,7 +2204,7 @@ v02の「次の一手」は、実試合1本について人間が作った正解F
 
 ### 17.5 着手順
 
-P0を先に置く。理由は三つある。第一に、実データ混入を検出するCIが先に入っていないと、Gold Datasetを置いたときに検査の仕組みがない状態になる。第二に、P0は軽く、開発環境が実際に回るか（Docker上のSupabase起動、マイグレーション、Playwrightでの再生位置アサート、CIからSupavisorへのスモークテスト）を最初に確かめられる。第三に、P-1は原稿執筆と正解データ作成が主で、リポジトリの足場を必要としないため並行できる。
+P0を先に置く。理由は三つある。第一に、実データ混入を検出するCIが先に入っていないと、Gold Datasetを置いたときに検査の仕組みがない状態になる。第二に、P0は軽く、開発環境が実際に回るか（Docker上の `postgres:16` コンテナ起動、マイグレーション、Playwrightでの再生位置アサート、CIからSupavisorへのスモークテスト）を最初に確かめられる。第三に、P-1は原稿執筆と正解データ作成が主で、リポジトリの足場を必要としないため並行できる。
 
 P1の受け入れテストには手書きの小さなfixtureを使う。Gold Datasetが必要になるのはP6（ステージ推定）からなので、そこまでにP-1が終わっていればよい。着手順はP0 → P1 → P2 …であり、v05末尾にあった「P0は完了済み」という記述は誤りだったため削除した。
 
@@ -2199,13 +2214,13 @@ v05までは「開発をWeb版Claude Codeで完結させる」を方針にして
 
 本書で「開発機」と呼ぶのは、本案件の実データを置く1台を指す。現時点では1号機。常時稼働させているため、時間のかかる処理とRemote Controlの接続に向く。ただし別案件と同居するので、Supabaseのポート・.env・Nodeのバージョン・.claude/settings.json をすべてプロジェクト内に閉じる。機材を入れ替えるときはこの一文だけを直せば済むように、以降は号機番号ではなく「開発機」と書く。
 
-別案件と同じマシンを使うことから来る注意が一つある。supabase start の既定ポート54321〜54324は案件間でぶつかるため、本案件は supabase/config.toml でずらす。環境変数をシェルにexportせず、direnvと .nvmrc でプロジェクト直下に閉じる。取り違えを防ぐ実効的な手段は、マシンを分けることではなく、作業ディレクトリの外に設定を置かないことである。
+別案件と同じマシンを使うことから来る注意が一つある。Postgres コンテナの公開ポートは案件間でぶつかるため、本案件は `.env.local` の `DATABASE_URL` / `DIRECT_URL` でポートをずらす（コンテナの立て方は `DEV_ENVIRONMENTS.md`。`scripts/install_pkgs.sh` はコンテナを起動も作成もしない）。環境変数をシェルにexportせず、`.env.local` と .nvmrc でプロジェクト直下に閉じる。取り違えを防ぐ実効的な手段は、マシンを分けることではなく、作業ディレクトリの外に設定を置かないことである。
 
 同居はサーフェスの選択にも効く。デスクトップアプリは単一ウィンドウ・単一インスタンスで、セッションは一つのサイドバーに並ぶ。同じマシンで2案件を動かすと、両方のセッションが同じ一覧に混ざる。CLIはセッションが起動したディレクトリに紐づくため、この混同が起きない。同居する環境では、下表のとおりCLIを主に置く理由がもう一つ増える。
 
 | サーフェス | 主に担当する作業 | 選ぶ理由 |
 |---|---|---|
-| CLI（ターミナル） | 実装全般。Docker・Supabase CLI・dev server・テスト・マイグレーションに触る作業 | 同じシェルで動くため .env / nvm / Dockerコンテキストが実行時と一致する。セッションが起動ディレクトリに紐づくので別案件と混ざらない。権限モードをセッション単位で決められる。claude -p でスクリプト化できる |
+| CLI（ターミナル） | 実装全般。Docker（`postgres:16`）・dev server・テスト・マイグレーションに触る作業 | 同じシェルで動くため .env / nvm / Dockerコンテキストが実行時と一致する。セッションが起動ディレクトリに紐づくので別案件と混ざらない。権限モードをセッション単位で決められる。claude -p でスクリプト化できる |
 | デスクトップアプリ（Codeタブ） | 指示書の作成、差分レビュー、長い自律実行の見守り、複数タスクの管理 | 進行と差分を目で追える。サイドバーで並列セッションを扱える |
 | Web版 | 音声・実キー・Dockerを必要としない回（スキーマ、型、純粋計算、テスト） | どの端末からでも入れる。本アプリでは補助の位置づけ |
 
@@ -2225,11 +2240,11 @@ cd ../ada-p1 && claude
 > **Web版を補助に使う場合の環境**
 > Ubuntu 24.04（x86_64）、約4 vCPU / 16 GB RAM / 30 GB ディスク。
 > Node.js 20 / 21 / 22、Docker、chromedriver、そして PostgreSQL 16 と Redis 7 がプリインストールされている。
-> PostgreSQL 16が入っているため、スキーマ・型・純粋計算のPRであれば、実Supabaseに触れずにWeb版だけで完結できる。ローカルで同じことをする場合は Supabase CLI（Docker）を使う。
+> PostgreSQL 16が入っているため、スキーマ・型・純粋計算のPRであれば、実Supabaseに触れずにWeb版だけで完結できる。ローカルで同じことをする場合は Docker の `postgres:16` コンテナを使う。
 
-ローカルでは Supabase CLI で Postgres を Docker に立て、マイグレーション・RLSポリシー・トリガー・CHECK制約をそこで検証する。開発中のどのサーフェスからも、本番の認証情報で実Supabaseプロジェクトへ接続しない。エージェントが本番データベースを直接触れる状態を作らないためである。本番へのマイグレーション適用はGitHub Actionsから行う。
+ローカルでは `postgres:16` コンテナを Docker に立て（ロールと DB は `scripts/db-bootstrap.sql` を `install_pkgs.sh` が流す）、マイグレーション・RLSポリシー・トリガー・CHECK制約をそこで検証する。開発中のどのサーフェスからも、本番の認証情報で実Supabaseプロジェクトへ接続しない。エージェントが本番データベースを直接触れる状態を作らないためである。本番へのマイグレーション適用はGitHub Actionsから行う。
 
-ローカルPostgresでは検証できないもの（v06で明記） prepared statementが使えないのはSupavisorのtransaction mode固有の挙動であり、素のPostgres 16は普通に受け付ける。Supabase CLIが立てるのも素のPostgresなので、「prepare: false を検証するテスト」をローカルで書いても、設定値をアサートするだけで、§4.2が警告した「指定を忘れると本番でだけ落ちる」はそのまま起きる。P0の受け入れ基準は二段構えにする。第一に、postgres.jsの初期化オプションが prepare: false であることをコードの静的検査で確かめる。第二に、GitHub ActionsからSupavisorのtransaction mode（6543）へ実際に接続し、prepared statementを使う経路が失敗することをスモークテストで確かめる。後者はCIの秘密情報を使うため、ローカルからもクラウドセッションからも実行しない。
+ローカルPostgresでは検証できないもの（v06で明記） prepared statementが使えないのはSupavisorのtransaction mode固有の挙動であり、素のPostgres 16は普通に受け付ける。コンテナで立てるのも素のPostgresなので、「prepare: false を検証するテスト」をローカルで書いても、設定値をアサートするだけで、§4.2が警告した「指定を忘れると本番でだけ落ちる」はそのまま起きる。P0の受け入れ基準は二段構えにする。第一に、postgres.jsの初期化オプションが prepare: false であることをコードの静的検査で確かめる。第二に、GitHub ActionsからSupavisorのtransaction mode（6543）へ実際に接続し、prepared statementを使う経路が失敗することをスモークテストで確かめる。後者はCIの秘密情報を使うため、ローカルからもクラウドセッションからも実行しない。
 
 ローカルの .env に置くのは検証用のキーだけとする。本番の認証情報はGitHub Actions Secretsにだけ置く。Web版を補助に使う場合、クラウド環境には専用のシークレットストアがなく環境変数はその環境を使う人全員から読めるため、シークレットを一つも置かない。その結果、Web版のネットワークアクセスは既定のTrustedのままでよい。
 
@@ -2238,7 +2253,7 @@ cd ../ada-p1 && claude
 | PR | 実行場所 | 理由 |
 |---|---|---|
 | P-1 Gold Dataset | 執筆はどこでも／音声化は開発機 | 42分の音声を組み立てて聴く |
-| P0・P3・P4・P5・P8 | 開発機のCLI | Docker上のSupabase、実プロバイダのキー、TUSアップロードの実挙動が要る |
+| P0・P3・P4・P5・P8 | 開発機のCLI | Docker上のPostgres、実プロバイダのキー、TUSアップロードの実挙動が要る |
 | P1・P2・P6・P9・P11・P12・P13 | CLIが主。Web版でも可 | 純粋計算とスキーマで完結し、音声も外部APIも要らない |
 | P7・P10 | CLIで実装 → ブラウザで人が確認 | 再生位置・ステージ境界・audibilityは人の耳 |
 | ★G0 縦切り貫通 | 開発機 | 全工程を人が通す |
@@ -2302,14 +2317,16 @@ cd ../ada-p1 && claude
 | 欠損ステージのDROPS | coverage_status ≠ complete のステージを to とするDROPS | 導出されない。stage_coverage_gap が立つ（v07） |
 | ステージ長の検査 | 規定時間の2倍を超えるステージ、規定時間を超える単一segment | stage_duration_anomaly / segment_duration_anomaly が立つ（v07） |
 | 話者ラベルの混入 | providerが返した話者ラベルの保存、align_words の speaker 列 | 列が存在しない。取り込みコードに参照があったら失敗（v07） |
-| 座席結び付け | 名乗り区間が未特定のまま seat_binding_status を human_confirmed にする | 422（v07） |
+| 座席結び付け | 名乗り区間が未特定のまま seat_binding_status を human_confirmed にする | 400 VALIDATION_FAILED。details に理由（v07。応答コードは §14.2） |
 | Strength=None の根拠 | residualNote が空の None | Zod検証で失敗（v07） |
 | 判定理由の根拠 | 根拠segmentを持たない段落、ground が未設定の段落 | 生成されない。生成されたらCIで失敗（v07） |
 | バロットの一意性 | 同一ジャッジの2票目 | 409 BALLOT_DUPLICATE（v07） |
-| パネル人数 | panel_size が偶数 | 422（v07） |
+| パネル人数 | panel_size が偶数 | 400 VALIDATION_FAILED。details に理由（v07。応答コードは §14.2） |
 | 少数意見の保存 | パネル結果の導出後に、多数と異なるバロットが消えていないか | 件数と判定理由が保存されている（v07） |
 | 伝達評価の混入 | ground='delivery' の段落をVoting Issueの理由に使う | communication_in_content が candidate で立つ。自動除外はしない（v07） |
 | ロック検査の分離 | 判定の集計コードが judge_lock_guard をimportしている | importがあったら失敗（v07・§12.4） |
+
+本表は `ACCEPTANCE.md §1` の上位集合ではない。P3 / P4 の実装で足した項目（M9 / M12 / M27〜M43。メディア取り込み・ジョブ基盤・Storage の詳細）は本表に対応行が無いが有効であり、`ACCEPTANCE.md` が正本である。本表の v07 以降の行は `ACCEPTANCE.md` では M44 以降に対応する。
 
 > **negative testを必ず書く** ruleset整合・ロック不変条件・audibilityの書き手・RLS・ノードの根拠は、いずれも「拒否されること」を確かめるテストである。正しいデータで通るだけのテストは、ルールを守れているかを検証していない。
 
@@ -2619,7 +2636,7 @@ ai-debate-analyzer/
 - audibilityを書けるのは人だけ。ASRのconfidenceを代用にしない。
 - DBアクセスはSupavisor経由のPostgres接続だけ。supabase-jsをDBに使わない。service role keyはStorageとAuth専用。
 - 素のRoute Handlerを直接書かない。defineHandlerを通す。
-- 開発中のどのサーフェスからも、本番の認証情報で実Supabaseへ接続しない。DBの検証はローカルのSupabase CLI（Docker）で行う。ただしprepare: false の実挙動はSupavisor固有なので、CIのスモークテストで別に確かめる。
+- 開発中のどのサーフェスからも、本番の認証情報で実Supabaseへ接続しない。DBの検証はローカルの `postgres:16` コンテナ（Docker）で行う。ただしprepare: false の実挙動はSupavisor固有なので、CIのスモークテストで別に確かめる。
 - セッションはサーフェス間で共有されない。受け渡しは必ずリポジトリ内のファイルで行い、「途中で乗り換える」ことを前提にしない。
 ・同じ作業ツリーで2つのセッションを同時に走らせない。並列にするなら git worktree を切る。
 
