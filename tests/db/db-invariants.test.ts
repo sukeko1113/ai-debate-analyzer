@@ -127,6 +127,39 @@ describe("許諾（DB トリガ・受け入れ基準4の DB 側）", () => {
       }),
     ).rejects.toMatchObject({ code: "23514" });
   });
+
+  /**
+   * consent_scope の値域（PRIVACY_RETENTION.md §2 の5値。drizzle/0005）。
+   *
+   * Zod 側を5値にしただけでは、API を通らない経路で4値の CHECK が残る。
+   * マイグレーションが効いたことを機械で言えるのはここだけである。
+   */
+  it("consent_scope は5値を受け、表にない値を 23514 で拒否する", async () => {
+    const scopes = ["practice_only", "training_material", "research", "public", "expert_reference"];
+    for (const scope of scopes) {
+      await withActor(server, actor, async (tx) => {
+        const id = await seedMatch(tx);
+        const res = await tx`
+          UPDATE matches
+             SET consent_scope = ${scope},
+                 consent_obtained_from = ARRAY['student'],
+                 consent_recorded_at = now()
+           WHERE id = ${id}`;
+        expect(res.count).toBe(1);
+      });
+    }
+
+    // v08 の書き損じ 'practice' を含む。書き損じが静かに保存されると、
+    // 保持期限（PRIVACY_RETENTION.md §2）をどの行に当てるか決められなくなる
+    for (const scope of ["practice", "expert", "anything"]) {
+      await expect(
+        withActor(server, actor, async (tx) => {
+          const id = await seedMatch(tx);
+          await tx`UPDATE matches SET consent_scope = ${scope} WHERE id = ${id}`;
+        }),
+      ).rejects.toMatchObject({ code: "23514" });
+    }
+  });
 });
 
 describe("edit_logs は追記のみ（DATA_MODEL.md §10）", () => {

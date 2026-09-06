@@ -20,7 +20,20 @@ export const ANALYSIS_STARTED_STATUSES = MatchStatus.options.filter(
   (s) => s !== "draft",
 ) as readonly MatchStatus[];
 
-export const ConsentScope = z.enum(["practice_only", "training_material", "research", "public"]);
+/**
+ * 許諾の範囲（PRIVACY_RETENTION.md §2）。5値。
+ *
+ * expert_reference は熟練ジャッジ参照DB（Phase C）専用である。通常の録画許諾に
+ * 「AIの参照データにする」は含まれないので、別の scope として個別に取る。
+ * 値域だけ先に入れ、運用は Phase C（v09 §17.7）。画面の選択肢にはまだ出さない。
+ */
+export const ConsentScope = z.enum([
+  "practice_only",
+  "training_material",
+  "research",
+  "public",
+  "expert_reference",
+]);
 export type ConsentScope = z.infer<typeof ConsentScope>;
 
 export const ConsentSource = z.enum(["student", "guardian", "school", "organizer"]);
