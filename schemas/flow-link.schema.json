@@ -64,57 +64,47 @@
         }
       ]
     },
-    "comparison": {
-      "default": [],
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "axis": {
-            "type": "string",
-            "enum": [
-              "magnitude",
-              "probability",
-              "timeframe",
-              "value"
-            ]
-          },
-          "favors": {
-            "type": "string",
-            "enum": [
-              "AFF",
-              "NEG",
-              "neither"
-            ]
-          },
-          "rationale": {
-            "type": "string",
-            "minLength": 1
-          },
-          "source": {
-            "type": "string",
-            "enum": [
-              "debater",
-              "judge"
-            ]
-          },
-          "segmentIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          }
+    "effectivenessAi": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "strong",
+            "partial",
+            "none"
+          ]
         },
-        "required": [
-          "axis",
-          "favors",
-          "rationale",
-          "source",
-          "segmentIds"
-        ]
-      }
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "effectivenessHuman": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "strong",
+            "partial",
+            "none"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "effectivenessSetBy": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "confidence": {
       "type": "number",
@@ -136,6 +126,9 @@
     "from",
     "to",
     "relation",
+    "effectivenessAi",
+    "effectivenessHuman",
+    "effectivenessSetBy",
     "confidence",
     "reviewStatus"
   ]

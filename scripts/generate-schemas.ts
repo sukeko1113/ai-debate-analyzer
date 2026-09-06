@@ -22,6 +22,7 @@ import {
   FlowLink,
   Issue,
   RuleFlag,
+  SummaryLink,
 } from "../packages/core/src/schema/flow";
 import { JudgeDecision, JudgeRun } from "../packages/core/src/schema/judge";
 import {
@@ -52,6 +53,13 @@ const REGISTRY: Entry[] = [
     id: `${ID_BASE}/argument-node.schema.json`,
   },
   { file: "flow-link.schema.json", schema: FlowLink, id: `${ID_BASE}/flow-link.schema.json` },
+  // 比較の中身は v09 で flow_links.comparison から分離した。登録しないと
+  // 「どの Issue とどの Issue を比べたか」の形が生成物から落ちる
+  {
+    file: "summary-link.schema.json",
+    schema: SummaryLink,
+    id: `${ID_BASE}/summary-link.schema.json`,
+  },
   { file: "rule-flag.schema.json", schema: RuleFlag, id: `${ID_BASE}/rule-flag.schema.json` },
   {
     file: "comparison-axis.schema.json",

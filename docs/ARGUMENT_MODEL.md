@@ -282,16 +282,23 @@ export const ComparisonAxis = z.object({
 );
 ```
 
-> **【P4.2 で置換】** 以下の保存先は v05 の形で、`flow.test.ts` が「comparison を持てるのは COMPARES だけ」を固定している。
-> v09 では `flow_links.comparison` を廃し、**`summary_links`**（`link_id` = COMPARES の flow_link、
-> `own_issue_id` / `opponent_issue_id`、`source`、`axes: ComparisonAxis[]`、`review_status`）に持つ
-> （`DATA_MODEL.md` §6、v09 §13.2 `SummaryLink`）。`SummaryLink.source` と `axes[].source` は一致させる。
-> `FlowLink.comparison` から `SummaryLink` への書き換えは Zod と同時に行う。
+**`summary_links`** に保存する（`DATA_MODEL.md` §6、v09 §13.2 `SummaryLink`）。
 
-`flow_links.comparison`（jsonb）に `ComparisonAxis[]` として保存する。
-**比較を持てるのは `relation = 'COMPARES'` のリンクだけである。**
-DB 側は `CHECK (comparison IS NULL OR relation = 'COMPARES')`（`DATA_MODEL.md` §6）、
-アプリ側は `FlowLink` の refine で担保する。
+| 列 | 内容 |
+| --- | --- |
+| `link_id` | 比較の実体である `COMPARES` の `flow_link` |
+| `own_issue_id` / `opponent_issue_id` | どの Issue とどの Issue を比べたか |
+| `source` | `debater` / `judge`。`axes[].source` と一致させる |
+| `axes` | `ComparisonAxis[]`。1件以上 |
+| `review_status` | 比較そのものをレビュー単位にする |
+
+v05 では `flow_links.comparison`（jsonb）に持っていた。どの Issue とどの Issue を比べたのかが
+リンクの端点からしか分からず、比較そのものをレビュー単位にできなかったので、v06 で別テーブルへ分離した。
+Zod の書き換えは P4.2 で行った（`FlowLink` から `comparison` が消え、`SummaryLink` が新設された）。
+
+`source` を `SummaryLink` と `axes[]` の両方で持ち、一致を refine で担保する。
+片方の SummaryLink に「ディベーターの比較」と「ジャッジ独自の比較」が混ざると、
+判定理由に §5.2 の断り書きを入れるべきかを機械で決められなくなる。
 
 `ComparisonAxis` 自体（4軸・`favors`・`rationale`・`source`・`segmentIds` と refine）は v09 でも変わらない。
 

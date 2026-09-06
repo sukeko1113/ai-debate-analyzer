@@ -195,8 +195,14 @@ export const FlowLink = z
     relation: Relation,
     /** そのやりとりが何をしたか（ARGUMENT_MODEL.md §2）。ATTACKS / DEFENDS / ANSWERS のみ持つ */
     effectKind: EffectKind.nullable().default(null),
-    /** 比較の中身。Summary の COMPARES リンクだけが持つ（ARGUMENT_MODEL.md §5） */
-    comparison: z.array(ComparisonAxis).default([]),
+    /**
+     * そのやりとりがどれだけ効いたか。再解析は *_ai だけを更新し、*_human に触らない。
+     * 表示は COALESCE(human, ai)。判定（Human Ballot）はここを読まない（JUDGE_LOGIC.md §1.1）。
+     */
+    effectivenessAi: z.enum(["strong", "partial", "none"]).nullable(),
+    effectivenessHuman: z.enum(["strong", "partial", "none"]).nullable(),
+    /** 人が書いたときだけサーバが入れる。AI は書けない */
+    effectivenessSetBy: Uuid.nullable(),
     confidence: z.number().min(0).max(1),
     reviewStatus: ReviewStatus,
   })
@@ -219,12 +225,36 @@ export const FlowLink = z
         "relation に許されない effectKind（ARGUMENT_MODEL.md §2）。ATTACKS / DEFENDS では必須、ANSWERS では任意、それ以外は null",
       path: ["effectKind"],
     },
-  )
-  .refine((l) => l.relation === "COMPARES" || l.comparison.length === 0, {
-    message: "comparison を持てるのは COMPARES のリンクだけ（ARGUMENT_MODEL.md §5）",
-    path: ["comparison"],
-  });
+  );
 export type FlowLink = z.infer<typeof FlowLink>;
+
+/**
+ * Summary の COMPARES リンクに付く比較の中身（ARGUMENT_MODEL.md §5.1）。
+ *
+ * v05 では flow_links.comparison（jsonb）に持っていた。どの Issue とどの Issue を
+ * 比べたのかがリンクの端点からしか分からず、比較そのものをレビュー単位にできなかったので、
+ * 別テーブルへ分離した（v09 §13.2）。
+ *
+ * axes[].source と SummaryLink.source は一致させる。「ディベーターの比較」と
+ * 「ジャッジ独自の比較」が1つの SummaryLink に混ざると、判定理由に
+ * 「試合中に比較基準が示されなかった」と書くべきかを機械で決められなくなる（§5.2）。
+ */
+export const SummaryLink = z
+  .object({
+    id: Uuid,
+    /** COMPARES の flow_link */
+    linkId: Uuid,
+    ownIssueId: Uuid,
+    opponentIssueId: Uuid,
+    source: z.enum(["debater", "judge"]),
+    axes: z.array(ComparisonAxis).min(1),
+    reviewStatus: ReviewStatus,
+  })
+  .refine((s) => s.axes.every((a) => a.source === s.source), {
+    message: "axes の source は SummaryLink の source と一致する（ARGUMENT_MODEL.md §5.2）",
+    path: ["axes"],
+  });
+export type SummaryLink = z.infer<typeof SummaryLink>;
 
 /**
  * ルール違反の候補（HENDA_RULESET.md §3）。

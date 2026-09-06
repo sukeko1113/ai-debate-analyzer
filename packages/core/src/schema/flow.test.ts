@@ -17,6 +17,7 @@ import {
   NodeType,
   RuleFlag,
   RuleFlagType,
+  SummaryLink,
 } from "./flow";
 
 const ID = {
@@ -25,6 +26,8 @@ const ID = {
   link: "33333333-3333-4333-8333-333333333333",
   issue: "44444444-4444-4444-8444-444444444444",
   seg: "55555555-5555-4555-8555-555555555555",
+  issue2: "66666666-6666-4666-8666-666666666666",
+  summary: "77777777-7777-4777-8777-777777777777",
 } as const;
 
 const claim = {
@@ -45,7 +48,9 @@ const link = {
   to: ID.node1,
   relation: "ATTACKS",
   effectKind: "no_link",
-  comparison: [],
+  effectivenessAi: null,
+  effectivenessHuman: null,
+  effectivenessSetBy: null,
   confidence: 0.7,
   reviewStatus: "suggested",
 };
@@ -253,7 +258,7 @@ describe("FlowLink", () => {
     expect(FlowLink.safeParse({ ...cites, effectKind: "admits" }).success).toBe(false);
   });
 
-  it("comparison を持てるのは COMPARES だけ（ARGUMENT_MODEL.md §5）", () => {
+  it("比較の中身はもう FlowLink に無い（v09 で summary_links へ分離）", () => {
     const axis = {
       axis: "magnitude",
       favors: "AFF",
@@ -261,20 +266,71 @@ describe("FlowLink", () => {
       source: "judge",
       segmentIds: [],
     };
+    const parsed = FlowLink.parse({ ...link, relation: "COMPARES", effectKind: null });
+    expect(parsed).not.toHaveProperty("comparison");
+    // 余計な comparison を渡しても、リンク側には保存されない
     expect(
-      FlowLink.safeParse({
-        ...link,
-        relation: "COMPARES",
-        effectKind: null,
-        comparison: [axis],
-      }).success,
-    ).toBe(true);
-    expect(FlowLink.safeParse({ ...link, comparison: [axis] }).success).toBe(false);
+      FlowLink.parse({ ...link, relation: "COMPARES", effectKind: null, comparison: [axis] }),
+    ).not.toHaveProperty("comparison");
+  });
+
+  it("effectiveness は ai / human を別に持ち、既定は両方 null", () => {
+    expect(FlowLink.safeParse({ ...link, effectivenessAi: "strong" }).success).toBe(true);
+    expect(FlowLink.safeParse({ ...link, effectivenessHuman: "partial" }).success).toBe(true);
+    expect(FlowLink.safeParse({ ...link, effectivenessAi: "weak" }).success).toBe(false);
+    // 判定に使う語彙ではない。Strength の語彙（Strong/Weak/None）と混ぜない
+    expect(FlowLink.safeParse({ ...link, effectivenessAi: "None" }).success).toBe(false);
   });
 
   it("confidence は 0..1", () => {
     expect(FlowLink.safeParse({ ...link, confidence: 1.1 }).success).toBe(false);
     expect(FlowLink.safeParse({ ...link, confidence: -0.1 }).success).toBe(false);
+  });
+});
+
+describe("SummaryLink（ARGUMENT_MODEL.md §5.1）", () => {
+  const axis = {
+    axis: "magnitude",
+    favors: "AFF",
+    rationale: "影響人数が桁違いに大きい",
+    source: "debater",
+    segmentIds: [ID.seg],
+  };
+  const summaryLink = {
+    id: ID.summary,
+    linkId: ID.link,
+    ownIssueId: ID.issue,
+    opponentIssueId: ID.issue2,
+    source: "debater",
+    axes: [axis],
+    reviewStatus: "suggested",
+  };
+
+  it("自分の Issue と相手の Issue、比較の軸、レビュー状態を持つ", () => {
+    expect(SummaryLink.safeParse(summaryLink).success).toBe(true);
+  });
+
+  it("軸が空だと失敗する（比較の中身の無い比較を作らない）", () => {
+    expect(SummaryLink.safeParse({ ...summaryLink, axes: [] }).success).toBe(false);
+  });
+
+  it("axes の source が SummaryLink の source と食い違うと失敗する（§5.2）", () => {
+    expect(SummaryLink.safeParse({ ...summaryLink, source: "judge", axes: [axis] }).success).toBe(
+      false,
+    );
+    expect(
+      SummaryLink.safeParse({
+        ...summaryLink,
+        source: "judge",
+        axes: [{ ...axis, source: "judge", segmentIds: [] }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("ディベーター由来の軸は根拠 segment を要求する（ComparisonAxis の refine が効く）", () => {
+    expect(
+      SummaryLink.safeParse({ ...summaryLink, axes: [{ ...axis, segmentIds: [] }] }).success,
+    ).toBe(false);
   });
 });
 
