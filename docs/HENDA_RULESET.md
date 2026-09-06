@@ -129,14 +129,8 @@ ruleset id: `henda-20` / version: 大会ルールの改定日（例 `2025-11-28`
 すべて**候補フラグ**であり、自動で判定から除外しない。
 `status` は `candidate` / `confirmed` / `rejected` の3値で、`review_status` とは別語彙（`JUDGE_LOGIC.md` §3）。
 
-> **【P4.2 で置換】** 以下の表は P1 の9種。v09 は **15種**（`RuleFlagType`。v09 §13.2）で、v07 の5種
-> `audibility_gap`（対象区間に `audibility = unheard` があり DROPS を導出できない）/
-> `stage_coverage_gap`（応答義務のあったステージの `coverage_status ≠ complete`）/
-> `stage_duration_anomaly` / `segment_duration_anomaly`（§1.2）/
-> `communication_in_content`（`delivery` 語彙が Voting Issue / Strength の理由に混入。§7.1）と、
-> v09 の `dropped`（相手ステージにノードが1つも無く DROPS リンクを作れない）を足す。
-> `flow.test.ts` が9種を固定しているので、表の置換は Zod と同時に行う。
-> 15種のうち後6種は条項番号を持たない（記録の欠損と判定理由の混入に関する本アプリ側の規則）。
+**15種**（`RuleFlagType`。v09 §13.2）。後6種は条項番号を持たない。
+記録の欠損と、判定理由への混入に関する本アプリ側の規則である。
 
 | type | 条項 | 検出内容 | 判断主体 |
 | --- | --- | --- | --- |
@@ -149,6 +143,17 @@ ruleset id: `henda-20` / version: 大会ルールの改定日（例 `2025-11-28`
 | `premature_rebuttal` | 2.1.4 | 肯定アタック⑦での否定アタック⑤への再反論 | 人 |
 | `evidence_incomplete` | 3.2.1 | 引用時の必須読み上げ要素の欠落 | 人 |
 | `own_calculation` | 3.2.1.1 | 独自計算値の宣言と元データ読み上げの欠落 | 人 |
+| `audibility_gap` | — | 対象区間に `audibility = unheard` があり、DROPS を導出できない | 人 |
+| `stage_coverage_gap` | — | 応答義務のあったステージの `coverage_status ≠ complete` | 人 |
+| `stage_duration_anomaly` | — | ステージ長が規定と大きく食い違う（§1.2） | 人 |
+| `segment_duration_anomaly` | — | 区間長が異常（ASR の取りこぼし・貼り付き。§1.2） | 人 |
+| `communication_in_content` | — | `delivery` の語彙が Voting Issue / Strength の理由に混入（§7.1） | 人 |
+| `dropped` | — | 相手ステージにノードが1つも無く、DROPS リンクを作れない | 人 |
+
+> **`audibility_gap` / `stage_coverage_gap` から DROPS を導出しない。**
+> 「聞き取れなかった」「記録が無い」「応答しなかった」は別の事象で、判定材料になるのは DROPS だけである。
+> この2つのフラグは **DROPS を導出できないことを人に伝えるため**に立てる。逆向きには使わない
+> （`JUDGE_LOGIC.md` §4）。同じ理由で `dropped` も候補止まりであり、自動で「落ちた」ことにしない。
 
 ### 3.1 `evidence_incomplete` の必須要素（条項 3.2.1）
 

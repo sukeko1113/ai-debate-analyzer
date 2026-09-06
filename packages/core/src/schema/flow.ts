@@ -261,8 +261,14 @@ export type SummaryLink = z.infer<typeof SummaryLink>;
  *
  * すべて候補フラグであり、自動で判定から除外しない。
  * 条項 4.2.2 は「新しい議論かどうかの判断はジャッジが行う」と定めている。
+ *
+ * audibility_gap / stage_coverage_gap は「聞き取れなかった」「記録が無い」の印であり、
+ * DROPS（応答しなかった）とは別の事象である。判定材料になるのは DROPS だけで、
+ * この2つは**DROPS を導出できないこと**を人に伝えるために立てる。
+ * 逆向きに使って DROPS を作らない（CLAUDE.md の絶対原則）。
  */
 export const RuleFlagType = z.enum([
+  // 大会ルールの条項に対応する9種
   "new_argument",
   "extra_issue",
   "over_time",
@@ -272,6 +278,17 @@ export const RuleFlagType = z.enum([
   "evidence_incomplete",
   "own_calculation",
   "premature_rebuttal",
+  // 以下6種は条項番号を持たない。記録の欠損と、判定理由への混入に関する本アプリ側の規則
+  /** 対象区間に audibility = unheard があり、DROPS を導出できない */
+  "audibility_gap",
+  /** 応答義務のあったステージの coverage_status が complete でない */
+  "stage_coverage_gap",
+  "stage_duration_anomaly",
+  "segment_duration_anomaly",
+  /** delivery の語彙が Voting Issue / Strength の理由に混入している */
+  "communication_in_content",
+  /** 相手ステージにノードが1つも無く、DROPS リンクを作れない */
+  "dropped",
 ]);
 export type RuleFlagType = z.infer<typeof RuleFlagType>;
 

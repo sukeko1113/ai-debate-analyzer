@@ -19,7 +19,13 @@
         "speaker_role_mismatch",
         "evidence_incomplete",
         "own_calculation",
-        "premature_rebuttal"
+        "premature_rebuttal",
+        "audibility_gap",
+        "stage_coverage_gap",
+        "stage_duration_anomaly",
+        "segment_duration_anomaly",
+        "communication_in_content",
+        "dropped"
       ]
     },
     "targetRef": {

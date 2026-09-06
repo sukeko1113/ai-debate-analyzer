@@ -369,7 +369,7 @@ describe("ComparisonAxis（M26）", () => {
 });
 
 describe("RuleFlag", () => {
-  it("HENDA_RULESET.md §3 の9種", () => {
+  it("HENDA_RULESET.md §3 の15種", () => {
     expect(RuleFlagType.options).toEqual([
       "new_argument",
       "extra_issue",
@@ -380,7 +380,25 @@ describe("RuleFlag", () => {
       "evidence_incomplete",
       "own_calculation",
       "premature_rebuttal",
+      "audibility_gap",
+      "stage_coverage_gap",
+      "stage_duration_anomaly",
+      "segment_duration_anomaly",
+      "communication_in_content",
+      "dropped",
     ]);
+  });
+
+  it("case_flip は RuleFlagType にも無い（立論での case flip は new_argument 候補）", () => {
+    expect(RuleFlagType.options).not.toContain("case_flip");
+  });
+
+  it("聞き取れなかった・記録が無い・応答しなかったを別々の値で持つ", () => {
+    // 判定材料になるのは DROPS だけ。unheard と欠損ステージからは DROPS を導出できない。
+    // 導出できないことを人へ伝えるための印が、この2つである（HENDA_RULESET.md §3）
+    expect(RuleFlagType.options).toContain("audibility_gap");
+    expect(RuleFlagType.options).toContain("stage_coverage_gap");
+    expect(RuleFlagType.options).toContain("dropped");
   });
 
   it("候補・確定・却下の3状態を持ち、根拠と対象が必須", () => {
