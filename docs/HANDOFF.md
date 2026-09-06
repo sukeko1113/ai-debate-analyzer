@@ -1109,3 +1109,16 @@ A・B を残したまま C だけを消す操作で保持順序（A→B→C→D�
 1. 実装由来の記述（`DATA_MODEL §0/§2.1/§3/§4/§10`、`API_SPEC §0.2/§2/§11`、`PRIVACY §3.1/§4/§5`、
    `REVIEW_SEMANTICS §1.3`、`ACCEPTANCE M9/M12/M27〜M43`）を v09 の一行要約へ縮めていないこと
 2. v09 内部の食い違いを、分割文書を黙ってどちらかへ寄せる形で解決していないこと（b の表が採用側の記録）
+
+### 件42 ロック不変条件の読み合わせで見つかった2点 — P4.2 で扱う
+
+件40-1 完了後、v09 §10.11 と JUDGE_LOGIC §5 / DATA_MODEL §8 / API_SPEC §7.2 を人が読み比べた結果。
+追随そのものは正しい（8条件・応答表・judge_cited_segments のビューは3文書で一致）。残る2点：
+
+1. **条件8の主語が文書ごとに違う。** JUDGE_LOGIC は「`Strength = None` の Issue に」、
+   DATA_MODEL は「`judge_issue_assessments_human` の `strength = 'None'` の行に（CHECK）」、
+   API_SPEC は「`strength = 'None'` の assessment に」。実質は同じだが、実装するのは DATA_MODEL の言い方。
+   JUDGE_LOGIC だけ読むと `issues` テーブルに列を足すと誤読しうる。P4.2 で主語を揃える。
+2. **条件6（`rule_flags` に candidate が残っていない）の応答が API_SPEC にしかない。**
+   しかも「v09 に記載なし。`400 VALIDATION_FAILED` の想定。P15 で確定」と保留してある（v09 自体の欠落）。
+   JUDGE_LOGIC §5 と DATA_MODEL §8 の応答表には条件6の行が無い。P4.2 で3文書の表を揃えるか、P15 まで保留と明記する。
