@@ -203,3 +203,4 @@ AIは候補を出すだけで、確定するのは人間。
 | `docs/TASKS.md` | Phase A（P0〜P13.5・縦切り）／Phase B（P14〜P23）／Phase C のPR分割と実行場所 |
 | `docs/HANDOFF.md` | **PR間の申し送り。着手前に読み、完了時に追記する** |
 | `docs/DEV_ENVIRONMENTS.md` | ローカル（主）とクラウドセッション（補助）の使い分け、立ち上げ手順、踏んだ穴 |
+| `docs/reference/debate-judge-demo_extract_v02.md` | 別リポジトリ `debate-judge-demo`（判定モデルの原型）からの取り込み方針。**原典は `~/dev/_reference/debate-judge-demo`（読み取り専用・コミット 14b6082 固定）**。大会ルール確認による確定3件は §1.5 |
